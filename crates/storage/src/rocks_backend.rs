@@ -2,7 +2,7 @@
 //!
 //! Enable with feature: `persistence`
 
-use mnemosyne_core::{MemoryError, Result};
+use rememnemosyne_core::{MemoryError, Result};
 
 use super::backend::StorageBackend;
 

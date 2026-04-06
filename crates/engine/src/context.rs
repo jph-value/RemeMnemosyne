@@ -1,5 +1,5 @@
-use mnemosyne_core::*;
-use mnemosyne_graph::entity::GraphEntity;
+use rememnemosyne_core::*;
+use rememnemosyne_graph::entity::GraphEntity;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -44,7 +44,7 @@ impl ContextBuilderEngine {
         &self,
         response: &crate::router::MemoryResponse,
         entities: Vec<GraphEntity>,
-        decisions: Vec<mnemosyne_episodic::artifact::Decision>,
+        decisions: Vec<rememnemosyne_episodic::artifact::Decision>,
     ) -> ContextBundle {
         let mut bundle = ContextBundle::new();
 

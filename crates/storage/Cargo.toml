@@ -1,11 +1,11 @@
 [package]
-name = "mnemosyne-storage"
+name = "rememnemosyne-storage"
 version.workspace = true
 edition.workspace = true
-description = "Pluggable storage backends for Mnemosyne memory engine"
+description = "Pluggable storage backends for RemeMnemosyne memory engine"
 
 [dependencies]
-mnemosyne-core = { path = "../core" }
+rememnemosyne-core = { path = "../core" }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }

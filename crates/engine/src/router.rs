@@ -1,9 +1,9 @@
-use mnemosyne_core::*;
-use mnemosyne_semantic::SemanticMemoryStore;
-use mnemosyne_episodic::EpisodicMemoryStore;
-use mnemosyne_graph::GraphMemoryStore;
-use mnemosyne_temporal::TemporalMemoryStore;
-use mnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher, MicroEmbedder};
+use rememnemosyne_core::*;
+use rememnemosyne_semantic::SemanticMemoryStore;
+use rememnemosyne_episodic::EpisodicMemoryStore;
+use rememnemosyne_graph::GraphMemoryStore;
+use rememnemosyne_temporal::TemporalMemoryStore;
+use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher, MicroEmbedder};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -158,7 +158,7 @@ impl MemoryRouter {
     }
 
     /// Search entities by name
-    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<mnemosyne_graph::entity::GraphEntity> {
+    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
         self.graph.search_entities(query, limit).await
     }
 
@@ -167,7 +167,7 @@ impl MemoryRouter {
         &self,
         entity_id: &EntityId,
         max_depth: usize,
-    ) -> Result<Vec<(mnemosyne_graph::entity::GraphEntity, RelationshipType, f32)>> {
+    ) -> Result<Vec<(rememnemosyne_graph::entity::GraphEntity, RelationshipType, f32)>> {
         self.graph.find_related(entity_id, max_depth).await
     }
 
@@ -175,7 +175,7 @@ impl MemoryRouter {
     pub async fn get_entity_timeline(
         &self,
         entity_id: &EntityId,
-    ) -> Option<mnemosyne_temporal::timeline::Timeline> {
+    ) -> Option<rememnemosyne_temporal::timeline::Timeline> {
         self.temporal.get_entity_timeline(entity_id).await
     }
 

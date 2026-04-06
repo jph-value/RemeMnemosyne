@@ -1,4 +1,4 @@
-# Mnemosyne
+# Rememnosyne
 
 A high-performance agentic memory engine for LLM agents with unified memory coordination.
 
@@ -15,7 +15,7 @@ A high-performance agentic memory engine for LLM agents with unified memory coor
 ## Architecture
 
 ```
-mnemosyne/
+rememnosyne/
 ├── crates/
 │   ├── core          # Rust - Types, traits, errors
 │   ├── semantic      # Rust - TurboQuant, HNSW index
@@ -41,18 +41,18 @@ mnemosyne/
 ```toml
 # Cargo.toml - Pure Rust (default)
 [dependencies]
-mnemosyne-engine = "0.1"
+rememnosyne-engine = "0.1"
 
 # With RocksDB persistence (requires C++ toolchain)
-mnemosyne-engine = { version = "0.1", features = ["persistence"] }
+rememnosyne-engine = { version = "0.1", features = ["persistence"] }
 ```
 
 ```rust
-use mnemosyne_engine::MnemosyneEngine;
+use rememnosyne_engine::RememnosyneEngine;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let engine = MnemosyneEngine::default()?;
+    let engine = RememnosyneEngine::default()?;
 
     // Store a memory
     engine.remember(
@@ -102,19 +102,31 @@ async fn main() -> anyhow::Result<()> {
 ```toml
 [dependencies]
 # Default: Pure Rust with sled storage
-mnemosyne-engine = "0.1"
+rememnosyne-engine = { version = "0.1", default-features = ["rememnosyne-storage/sled-storage"] }
 
 # Optional: RocksDB persistence (requires C++ toolchain)
-mnemosyne-engine = { version = "0.1", features = ["persistence"] }
+rememnosyne-engine = { version = "0.1", features = ["rememnosyne-storage/persistence"] }
 
 # No storage (in-memory only)
-mnemosyne-engine = { version = "0.1", default-features = false }
+rememnosyne-engine = { version = "0.1", default-features = false }
 ```
 
 | Feature | Default | Dependencies |
 |---------|---------|--------------|
 | `default` | Yes | sled (pure Rust) |
 | `persistence` | No | RocksDB (C++) |
+
+## Origin Story
+
+Mnemosyne was born from a real-world need: **RISC.OSINT**, a planetary-scale intelligence system processing global risk data.
+
+The requirements that shaped Mnemosyne:
+- **Unlimited event storage** - RISC.OSINT needed to remove hard caps (500→50,000+ events)
+- **Semantic search at scale** - Finding relevant past events from millions of records
+- **Entity graph tracking** - Mapping relationships between locations, events, and actors
+- **Pure Rust by default** - Zero C++ dependencies for simple deployment
+
+RISC.OSINT was the first system to consume Mnemosyne, stress-testing the API and driving the architecture toward production readiness.
 
 ## License
 

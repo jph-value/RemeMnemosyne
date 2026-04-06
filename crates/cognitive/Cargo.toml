@@ -1,10 +1,10 @@
 [package]
-name = "mnemosyne-cognitive"
+name = "rememnemosyne-cognitive"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-mnemosyne-core = { path = "../core" }
+rememnemosyne-core = { path = "../core" }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }

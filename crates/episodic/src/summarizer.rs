@@ -1,4 +1,4 @@
-use mnemosyne_core::{EntityRef, EntityType, MemoryError, Result};
+use rememnemosyne_core::{EntityRef, EntityType, MemoryError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

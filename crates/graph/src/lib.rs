@@ -11,7 +11,7 @@ pub use traversal::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnemosyne_core::*;
+    use rememnemosyne_core::*;
 
     #[test]
     fn test_graph_entity_creation() {

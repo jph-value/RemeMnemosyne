@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use mnemosyne_core::*;
+use rememnemosyne_core::*;
 use petgraph::graph::{Graph, NodeIndex};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

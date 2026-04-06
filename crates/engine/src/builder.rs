@@ -1,18 +1,18 @@
-use mnemosyne_core::*;
-use mnemosyne_semantic::{SemanticMemoryStore, SemanticMemoryConfig};
-use mnemosyne_episodic::{EpisodicMemoryStore, EpisodicMemoryConfig};
-use mnemosyne_graph::{GraphMemoryStore, GraphMemoryConfig};
-use mnemosyne_temporal::{TemporalMemoryStore, TemporalMemoryConfig};
+use rememnemosyne_core::*;
+use rememnemosyne_semantic::{SemanticMemoryStore, SemanticMemoryConfig};
+use rememnemosyne_episodic::{EpisodicMemoryStore, EpisodicMemoryConfig};
+use rememnemosyne_graph::{GraphMemoryStore, GraphMemoryConfig};
+use rememnemosyne_temporal::{TemporalMemoryStore, TemporalMemoryConfig};
 #[cfg(feature = "persistence")]
-use mnemosyne_storage::backend::StorageBackend;
+use rememnemosyne_storage::backend::StorageBackend;
 #[cfg(feature = "persistence")]
-use mnemosyne_storage::StorageConfig;
+use rememnemosyne_storage::StorageConfig;
 #[cfg(feature = "persistence")]
-use mnemosyne_storage::snapshot::SnapshotManager;
+use rememnemosyne_storage::snapshot::SnapshotManager;
 #[cfg(feature = "persistence")]
-use mnemosyne_storage::RocksStorage;
+use rememnemosyne_storage::RocksStorage;
 #[cfg(feature = "sled-storage")]
-use mnemosyne_storage::SledStorage;
+use rememnemosyne_storage::SledStorage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub struct MnemosyneConfig {
 impl Default for MnemosyneConfig {
     fn default() -> Self {
         Self {
-            data_dir: "./mnemosyne_data".to_string(),
+            data_dir: "./rememnemosyne_data".to_string(),
             semantic: SemanticMemoryConfig::default(),
             episodic: EpisodicMemoryConfig::default(),
             graph: GraphMemoryConfig::default(),
@@ -186,7 +186,7 @@ impl MnemosyneEngine {
     }
 
     /// Search entities by name/description
-    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<mnemosyne_graph::entity::GraphEntity> {
+    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
         self.router.search_entities(query, limit).await
     }
 
@@ -210,7 +210,7 @@ impl MnemosyneEngine {
 
     /// List available snapshots
     #[cfg(feature = "persistence")]
-    pub fn list_snapshots(&self) -> Result<Vec<mnemosyne_storage::snapshot::SnapshotInfo>> {
+    pub fn list_snapshots(&self) -> Result<Vec<rememnemosyne_storage::snapshot::SnapshotInfo>> {
         if let Some(ref snapshots) = self.snapshots {
             snapshots.list_snapshots()
         } else {

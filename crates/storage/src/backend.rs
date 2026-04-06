@@ -1,6 +1,6 @@
 //! Storage backend trait for pluggable implementations.
 
-use mnemosyne_core::{MemoryError, Result};
+use rememnemosyne_core::{MemoryError, Result};
 
 /// Core trait for storage backends.
 ///

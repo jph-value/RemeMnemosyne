@@ -1,4 +1,4 @@
-use mnemosyne_core::{EntityId, MemoryError, Result};
+use rememnemosyne_core::{EntityId, MemoryError, Result};
 use petgraph::graph::{Graph, NodeIndex};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -352,8 +352,8 @@ impl PathAnalysis {
 
 #[derive(Debug, Clone)]
 pub struct PathAnalysisResult {
-    pub entity_types: Vec<mnemosyne_core::EntityType>,
-    pub relationship_types: Vec<mnemosyne_core::RelationshipType>,
+    pub entity_types: Vec<rememnemosyne_core::EntityType>,
+    pub relationship_types: Vec<rememnemosyne_core::RelationshipType>,
     pub avg_strength: f32,
     pub complexity: f32,
 }

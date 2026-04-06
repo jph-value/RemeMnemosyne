@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use mnemosyne_core::SessionId;
+use rememnemosyne_core::SessionId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -78,7 +78,7 @@ impl MemorySession {
         )
     }
 
-    pub fn get_all_entities(&self) -> Vec<&mnemosyne_core::EntityRef> {
+    pub fn get_all_entities(&self) -> Vec<&rememnemosyne_core::EntityRef> {
         use std::collections::HashSet;
 
         let mut seen = HashSet::new();

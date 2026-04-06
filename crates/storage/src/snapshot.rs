@@ -1,6 +1,6 @@
 //! Snapshot management for storage backends.
 
-use mnemosyne_core::Result;
+use rememnemosyne_core::Result;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,7 @@ impl SnapshotManager {
     pub fn new(base_path: impl AsRef<Path>) -> Result<Self> {
         let snapshots_dir = base_path.as_ref().join("snapshots");
         std::fs::create_dir_all(&snapshots_dir).map_err(|e| {
-            mnemosyne_core::MemoryError::Storage(format!("Failed to create snapshots dir: {}", e))
+            rememnemosyne_core::MemoryError::Storage(format!("Failed to create snapshots dir: {}", e))
         })?;
 
         Ok(Self { snapshots_dir })
@@ -30,11 +30,11 @@ impl SnapshotManager {
         // Export all data
         let data = export_backend(backend)?;
         let serialized = bincode::serialize(&data)
-            .map_err(|e| mnemosyne_core::MemoryError::Serialization(e.to_string()))?;
+            .map_err(|e| rememnemosyne_core::MemoryError::Serialization(e.to_string()))?;
 
         // Write data
         std::fs::write(&snapshot_path, &serialized)
-            .map_err(|e| mnemosyne_core::MemoryError::Storage(format!("Write failed: {}", e)))?;
+            .map_err(|e| rememnemosyne_core::MemoryError::Storage(format!("Write failed: {}", e)))?;
 
         // Write metadata
         let meta = SnapshotMeta {
@@ -44,9 +44,9 @@ impl SnapshotManager {
             entry_count: data.len(),
         };
         let meta_json = serde_json::to_string_pretty(&meta)
-            .map_err(|e| mnemosyne_core::MemoryError::Serialization(e.to_string()))?;
+            .map_err(|e| rememnemosyne_core::MemoryError::Serialization(e.to_string()))?;
         std::fs::write(&meta_path, meta_json).map_err(|e| {
-            mnemosyne_core::MemoryError::Storage(format!("Meta write failed: {}", e))
+            rememnemosyne_core::MemoryError::Storage(format!("Meta write failed: {}", e))
         })?;
 
         Ok(())
@@ -57,10 +57,10 @@ impl SnapshotManager {
         let snapshot_path = self.snapshots_dir.join(format!("{}.bin", name));
 
         let data = std::fs::read(&snapshot_path)
-            .map_err(|e| mnemosyne_core::MemoryError::Storage(format!("Read failed: {}", e)))?;
+            .map_err(|e| rememnemosyne_core::MemoryError::Storage(format!("Read failed: {}", e)))?;
 
         let entries: HashMap<Vec<u8>, Vec<u8>> = bincode::deserialize(&data)
-            .map_err(|e| mnemosyne_core::MemoryError::Serialization(e.to_string()))?;
+            .map_err(|e| rememnemosyne_core::MemoryError::Serialization(e.to_string()))?;
 
         // Clear existing data
         backend.clear()?;
@@ -79,11 +79,11 @@ impl SnapshotManager {
         let mut snapshots = Vec::new();
 
         let entries = std::fs::read_dir(&self.snapshots_dir)
-            .map_err(|e| mnemosyne_core::MemoryError::Storage(format!("Dir read failed: {}", e)))?;
+            .map_err(|e| rememnemosyne_core::MemoryError::Storage(format!("Dir read failed: {}", e)))?;
 
         for entry in entries {
             let entry = entry
-                .map_err(|e| mnemosyne_core::MemoryError::Storage(format!("Entry error: {}", e)))?;
+                .map_err(|e| rememnemosyne_core::MemoryError::Storage(format!("Entry error: {}", e)))?;
             let path = entry.path();
 
             if path.extension().and_then(|e| e.to_str()) == Some("meta") {
@@ -111,12 +111,12 @@ impl SnapshotManager {
 
         if data_path.exists() {
             std::fs::remove_file(&data_path).map_err(|e| {
-                mnemosyne_core::MemoryError::Storage(format!("Remove failed: {}", e))
+                rememnemosyne_core::MemoryError::Storage(format!("Remove failed: {}", e))
             })?;
         }
         if meta_path.exists() {
             std::fs::remove_file(&meta_path).map_err(|e| {
-                mnemosyne_core::MemoryError::Storage(format!("Remove failed: {}", e))
+                rememnemosyne_core::MemoryError::Storage(format!("Remove failed: {}", e))
             })?;
         }
 

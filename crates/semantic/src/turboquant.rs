@@ -1,4 +1,4 @@
-use mnemosyne_core::{MemoryError, Result};
+use rememnemosyne_core::{MemoryError, Result};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 

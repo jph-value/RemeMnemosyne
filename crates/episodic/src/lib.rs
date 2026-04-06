@@ -11,7 +11,7 @@ pub use summarizer::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnemosyne_core::SessionId;
+    use rememnemosyne_core::SessionId;
 
     #[test]
     fn test_episode_creation() {

@@ -1,4 +1,4 @@
-//! # Mnemosyne Storage
+//! # RemeMnemosyne Storage
 //!
 //! Pluggable storage backends with trait-based design.
 //!
@@ -10,10 +10,10 @@
 //! ## Usage
 //!
 //! ```rust
-//! use mnemosyne_storage::{SledStorage, StorageBackend};
-//! use mnemosyne_storage::backend::helpers;
+//! use rememnemosyne_storage::{SledStorage, StorageBackend};
+//! use rememnemosyne_storage::backend::helpers;
 //!
-//! # fn main() -> mnemosyne_core::Result<()> {
+//! # fn main() -> rememnemosyne_core::Result<()> {
 //! let storage = SledStorage::new("/tmp/my_memory_db")?;
 //! storage.put(b"key", b"value")?;
 //! let value = storage.get(b"key")?;
@@ -36,7 +36,7 @@ pub use sled_backend::SledStorage;
 #[cfg(feature = "persistence")]
 pub use rocks_backend::RocksStorage;
 
-use mnemosyne_core::Result;
+use rememnemosyne_core::Result;
 
 /// Create a default storage backend
 pub fn create_default_storage(path: &str) -> Result<Box<dyn StorageBackend>> {
@@ -62,7 +62,7 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            path: "./mnemosyne_data".to_string(),
+            path: "./rememnemosyne_data".to_string(),
             flush_every_ms: Some(1000),
             cache_capacity: Some(1024 * 1024 * 1024), // 1GB
         }

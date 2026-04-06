@@ -1,4 +1,4 @@
-use mnemosyne_core::{MemoryId, Result};
+use rememnemosyne_core::{MemoryId, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 

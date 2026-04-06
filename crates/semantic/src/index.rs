@@ -1,4 +1,4 @@
-use mnemosyne_core::Result;
+use rememnemosyne_core::Result;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -45,7 +45,7 @@ impl HNSWIndex {
         quantized_code: Option<QuantizedCode>,
     ) -> Result<usize> {
         if vector.len() != self.dimension {
-            return Err(mnemosyne_core::MemoryError::Index(format!(
+            return Err(rememnemosyne_core::MemoryError::Index(format!(
                 "Vector dimension {} != index dimension {}",
                 vector.len(),
                 self.dimension
@@ -153,7 +153,7 @@ impl HNSWIndex {
     /// Remove a vector from the index
     pub fn remove(&mut self, id: usize) -> Result<()> {
         if id >= self.data.len() {
-            return Err(mnemosyne_core::MemoryError::Index(
+            return Err(rememnemosyne_core::MemoryError::Index(
                 "ID out of bounds".into(),
             ));
         }
@@ -339,7 +339,7 @@ impl Ord for Candidate {
 pub struct FlatIndex {
     pub dimension: usize,
     pub vectors: Vec<Vec<f32>>,
-    pub ids: Vec<mnemosyne_core::MemoryId>,
+    pub ids: Vec<rememnemosyne_core::MemoryId>,
 }
 
 impl FlatIndex {
@@ -351,9 +351,9 @@ impl FlatIndex {
         }
     }
 
-    pub fn add(&mut self, id: mnemosyne_core::MemoryId, vector: Vec<f32>) -> Result<()> {
+    pub fn add(&mut self, id: rememnemosyne_core::MemoryId, vector: Vec<f32>) -> Result<()> {
         if vector.len() != self.dimension {
-            return Err(mnemosyne_core::MemoryError::Index(format!(
+            return Err(rememnemosyne_core::MemoryError::Index(format!(
                 "Vector dimension {} != index dimension {}",
                 vector.len(),
                 self.dimension
@@ -376,7 +376,7 @@ impl FlatIndex {
         results.into_iter().take(k).collect()
     }
 
-    pub fn remove(&mut self, id: &mnemosyne_core::MemoryId) -> Result<()> {
+    pub fn remove(&mut self, id: &rememnemosyne_core::MemoryId) -> Result<()> {
         if let Some(pos) = self.ids.iter().position(|i| i == id) {
             self.vectors.remove(pos);
             self.ids.remove(pos);

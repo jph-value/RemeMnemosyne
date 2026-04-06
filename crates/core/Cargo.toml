@@ -1,5 +1,5 @@
 [package]
-name = "mnemosyne-core"
+name = "rememnemosyne-core"
 version.workspace = true
 edition.workspace = true
 

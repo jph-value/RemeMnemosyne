@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use mnemosyne_core::*;
+use rememnemosyne_core::*;
 use serde::{Deserialize, Serialize};
 
 use crate::builder::MnemosyneEngine;
@@ -27,7 +27,7 @@ pub trait AgentMemory: Send + Sync {
     async fn forget(&self, id: &MemoryId) -> Result<bool>;
 
     /// Search entities
-    async fn search_entities(&self, query: &str, limit: usize) -> Vec<mnemosyne_graph::entity::GraphEntity>;
+    async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity>;
 
     /// Get context for LLM prompt
     async fn get_context(&self, query: &str, max_tokens: usize) -> Result<String>;
@@ -64,7 +64,7 @@ impl AgentMemory for MnemosyneEngine {
         Ok(true)
     }
 
-    async fn search_entities(&self, query: &str, limit: usize) -> Vec<mnemosyne_graph::entity::GraphEntity> {
+    async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
         self.search_entities(query, limit).await
     }
 

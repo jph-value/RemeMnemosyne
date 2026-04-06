@@ -1,4 +1,4 @@
-use mnemosyne_core::{MemoryArtifact, MemoryError, MemoryId, Result};
+use rememnemosyne_core::{MemoryArtifact, MemoryError, MemoryId, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub struct RocksConfig {
 impl Default for RocksConfig {
     fn default() -> Self {
         Self {
-            path: "./mnemosyne_data".to_string(),
+            path: "./rememnemosyne_data".to_string(),
             create_if_missing: true,
             max_open_files: 1000,
             write_buffer_size: 64 * 1024 * 1024, // 64MB
