@@ -10,12 +10,13 @@ mnemosyne-episodic = { path = "../episodic" }
 mnemosyne-graph = { path = "../graph" }
 mnemosyne-temporal = { path = "../temporal" }
 mnemosyne-cognitive = { path = "../cognitive" }
-mnemosyne-storage = { path = "../storage", default-features = false }
+mnemosyne-storage = { path = "../storage" }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+bincode = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
@@ -25,5 +26,5 @@ rayon = { workspace = true }
 tracing = { workspace = true }
 
 [features]
-default = []
-persistence = ["mnemosyne-storage/rocksdb-storage"]
+default = ["mnemosyne-storage/sled-storage"]
+persistence = ["mnemosyne-storage/persistence"]

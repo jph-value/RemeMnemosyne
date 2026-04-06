@@ -4,7 +4,15 @@ use mnemosyne_episodic::{EpisodicMemoryStore, EpisodicMemoryConfig};
 use mnemosyne_graph::{GraphMemoryStore, GraphMemoryConfig};
 use mnemosyne_temporal::{TemporalMemoryStore, TemporalMemoryConfig};
 #[cfg(feature = "persistence")]
-use mnemosyne_storage::{RocksStorage, RocksConfig, SnapshotManager};
+use mnemosyne_storage::backend::StorageBackend;
+#[cfg(feature = "persistence")]
+use mnemosyne_storage::StorageConfig;
+#[cfg(feature = "persistence")]
+use mnemosyne_storage::snapshot::SnapshotManager;
+#[cfg(feature = "persistence")]
+use mnemosyne_storage::RocksStorage;
+#[cfg(feature = "sled-storage")]
+use mnemosyne_storage::SledStorage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -22,6 +30,10 @@ pub struct MnemosyneConfig {
     pub router: MemoryRouterConfig,
     pub context: ContextBuilderConfig,
     pub enable_persistence: bool,
+    #[cfg(feature = "persistence")]
+    pub storage_config: StorageConfig,
+    #[cfg(not(feature = "persistence"))]
+    pub storage_config: Option<()>,
 }
 
 impl Default for MnemosyneConfig {
@@ -35,6 +47,10 @@ impl Default for MnemosyneConfig {
             router: MemoryRouterConfig::default(),
             context: ContextBuilderConfig::default(),
             enable_persistence: true,
+            #[cfg(feature = "persistence")]
+            storage_config: StorageConfig::default(),
+            #[cfg(not(feature = "persistence"))]
+            storage_config: None,
         }
     }
 }
@@ -51,9 +67,13 @@ pub struct MnemosyneEngine {
     pub router: Arc<MemoryRouter>,
     pub context_builder: Arc<ContextBuilderEngine>,
     #[cfg(feature = "persistence")]
-    pub storage: Option<Arc<RocksStorage>>,
+    pub storage: Option<Arc<dyn StorageBackend + Send + Sync>>,
     #[cfg(feature = "persistence")]
-    pub snapshots: Option<Arc<parking_lot::RwLock<SnapshotManager>>>,
+    pub snapshots: Option<Arc<SnapshotManager>>,
+    #[cfg(not(feature = "persistence"))]
+    pub storage: Option<()>,
+    #[cfg(not(feature = "persistence"))]
+    pub snapshots: Option<()>,
     config: MnemosyneConfig,
 }
 
@@ -78,30 +98,26 @@ impl MnemosyneEngine {
         // Create context builder
         let context_builder = Arc::new(ContextBuilderEngine::new(config.context.clone()));
 
-        // Create storage if enabled (only with persistence feature)
+        // Create storage if enabled
         #[cfg(feature = "persistence")]
         let (storage, snapshots) = if config.enable_persistence {
-            let rocks_config = RocksConfig {
-                path: config.data_dir.clone(),
-                ..Default::default()
-            };
-            let snapshot_path = std::path::Path::new(&config.data_dir).join("snapshots");
+            let storage = create_storage_backend(&config)?;
+            let snapshot_manager = SnapshotManager::new(&config.data_dir)?;
             (
-                Some(Arc::new(RocksStorage::new(rocks_config)?)),
-                Some(Arc::new(parking_lot::RwLock::new(
-                    SnapshotManager::new(snapshot_path)?
-                ))),
+                Some(storage as Arc<dyn StorageBackend + Send + Sync>),
+                Some(Arc::new(snapshot_manager)),
             )
         } else {
             (None, None)
         };
+        
+        #[cfg(not(feature = "persistence"))]
+        let (storage, snapshots) = (None, None);
 
         Ok(Self {
             router,
             context_builder,
-            #[cfg(feature = "persistence")]
             storage,
-            #[cfg(feature = "persistence")]
             snapshots,
             config,
         })
@@ -110,6 +126,13 @@ impl MnemosyneEngine {
     /// Create with default configuration
     pub fn default() -> Result<Self> {
         Self::new(MnemosyneConfig::default())
+    }
+
+    /// Create with in-memory storage only (no persistence)
+    pub fn in_memory() -> Result<Self> {
+        let mut config = MnemosyneConfig::default();
+        config.enable_persistence = false;
+        Self::new(config)
     }
 
     /// Store a memory artifact
@@ -132,10 +155,13 @@ impl MnemosyneEngine {
 
         let id = self.router.store(artifact.clone()).await?;
 
-        // Persist if storage enabled (only with persistence feature)
+        // Persist if storage enabled
         #[cfg(feature = "persistence")]
         if let Some(ref storage) = self.storage {
-            storage.store_memory(&artifact)?;
+            let key = artifact.id.as_bytes();
+            let value = bincode::serialize(&artifact)
+                .map_err(|e| MemoryError::Serialization(e.to_string()))?;
+            storage.put(key, &value)?;
         }
 
         Ok(id)
@@ -164,27 +190,32 @@ impl MnemosyneEngine {
         self.router.search_entities(query, limit).await
     }
 
-    /// Create a snapshot of current state (requires persistence feature)
+    /// Create a snapshot of current state
     #[cfg(feature = "persistence")]
-    pub async fn create_snapshot(&self, name: &str) -> Result<()> {
-        if let Some(ref snapshots) = self.snapshots {
-            let stats = self.router.get_stats().await;
-            
-            let mut snap = snapshots.write();
-            snap.create_snapshot(name, &stats)?;
+    pub fn create_snapshot(&self, name: &str) -> Result<()> {
+        if let (Some(ref storage), Some(ref snapshots)) = (&self.storage, &self.snapshots) {
+            snapshots.save_snapshot(name, storage.as_ref())?;
         }
         Ok(())
     }
 
-    /// Restore from snapshot (requires persistence feature)
+    /// Restore from snapshot
     #[cfg(feature = "persistence")]
-    pub async fn restore_snapshot(&self, name: &str) -> Result<()> {
-        if let Some(ref snapshots) = self.snapshots {
-            let snap = snapshots.read();
-            let _stats: crate::router::RouterStats = snap.load_snapshot(name)?;
-            // Would restore state from stats
+    pub fn restore_snapshot(&self, name: &str) -> Result<()> {
+        if let (Some(ref storage), Some(ref snapshots)) = (&self.storage, &self.snapshots) {
+            snapshots.restore_snapshot(name, storage.as_ref())?;
         }
         Ok(())
+    }
+
+    /// List available snapshots
+    #[cfg(feature = "persistence")]
+    pub fn list_snapshots(&self) -> Result<Vec<mnemosyne_storage::snapshot::SnapshotInfo>> {
+        if let Some(ref snapshots) = self.snapshots {
+            snapshots.list_snapshots()
+        } else {
+            Ok(Vec::new())
+        }
     }
 
     /// Get engine statistics
@@ -198,10 +229,14 @@ impl MnemosyneEngine {
             has_storage: self.storage.is_some(),
             #[cfg(feature = "persistence")]
             has_snapshots: self.snapshots.is_some(),
+            #[cfg(not(feature = "persistence"))]
+            has_storage: false,
+            #[cfg(not(feature = "persistence"))]
+            has_snapshots: false,
         }
     }
 
-    /// Flush all pending writes (requires persistence feature)
+    /// Flush all pending writes
     #[cfg(feature = "persistence")]
     pub fn flush(&self) -> Result<()> {
         if let Some(ref storage) = self.storage {
@@ -211,14 +246,42 @@ impl MnemosyneEngine {
     }
 }
 
+/// Create the appropriate storage backend based on config
+#[cfg(feature = "persistence")]
+fn create_storage_backend(config: &MnemosyneConfig) -> Result<Arc<dyn StorageBackend + Send + Sync>> {
+    let storage_path = format!("{}/data", config.data_dir);
+
+    #[cfg(feature = "persistence")]
+    {
+        // Use RocksDB if persistence feature is enabled
+        tracing::info!("Using RocksDB storage backend");
+        let storage = RocksStorage::new(&storage_path)?;
+        return Ok(Arc::new(storage));
+    }
+
+    #[cfg(not(feature = "persistence"))]
+    {
+        #[cfg(feature = "sled-storage")]
+        {
+            // Use sled (pure Rust)
+            tracing::info!("Using sled storage backend (pure Rust)");
+            let storage = SledStorage::new(&storage_path)?;
+            return Ok(Arc::new(storage));
+        }
+
+        #[cfg(not(feature = "sled-storage"))]
+        {
+            Err(MemoryError::Storage("No storage backend enabled".into()))
+        }
+    }
+}
+
 /// Engine statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineStats {
     pub router: crate::router::RouterStats,
     pub config: MnemosyneConfig,
-    #[cfg(feature = "persistence")]
     pub has_storage: bool,
-    #[cfg(feature = "persistence")]
     pub has_snapshots: bool,
 }
 
