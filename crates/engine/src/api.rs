@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use rememnemosyne_core::*;
 use serde::{Deserialize, Serialize};
 
-use crate::builder::MnemosyneEngine;
+use crate::builder::RememnosyneEngine;
 use crate::router::MemoryResponse;
 
 /// Core trait for agent memory operations
@@ -35,7 +35,7 @@ pub trait AgentMemory: Send + Sync {
 
 /// Agent memory API implementation
 #[async_trait]
-impl AgentMemory for MnemosyneEngine {
+impl AgentMemory for RememnosyneEngine {
     async fn remember(&self, content: &str, summary: &str, trigger: MemoryTrigger) -> Result<MemoryId> {
         self.remember(content, summary, trigger).await
     }
@@ -77,13 +77,13 @@ impl AgentMemory for MnemosyneEngine {
 
 /// Streaming memory operations for real-time processing
 pub struct StreamingMemoryHandler {
-    engine: MnemosyneEngine,
+    engine: RememnosyneEngine,
     buffer: Vec<String>,
     buffer_size: usize,
 }
 
 impl StreamingMemoryHandler {
-    pub fn new(engine: MnemosyneEngine, buffer_size: usize) -> Self {
+    pub fn new(engine: RememnosyneEngine, buffer_size: usize) -> Self {
         Self {
             engine,
             buffer: Vec::new(),
@@ -181,7 +181,7 @@ impl BatchMemoryOperations {
         self.operations.push(MemoryOperation::Update(artifact));
     }
 
-    pub async fn execute(&self, engine: &MnemosyneEngine) -> Vec<MemoryOperationResult> {
+    pub async fn execute(&self, engine: &RememnosyneEngine) -> Vec<MemoryOperationResult> {
         let mut results = Vec::new();
 
         for op in &self.operations {

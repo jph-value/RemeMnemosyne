@@ -21,7 +21,7 @@ use crate::context::{ContextBuilderEngine, ContextBuilderConfig};
 
 /// Main engine configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MnemosyneConfig {
+pub struct RememnosyneConfig {
     pub data_dir: String,
     pub semantic: SemanticMemoryConfig,
     pub episodic: EpisodicMemoryConfig,
@@ -36,7 +36,7 @@ pub struct MnemosyneConfig {
     pub storage_config: Option<()>,
 }
 
-impl Default for MnemosyneConfig {
+impl Default for RememnosyneConfig {
     fn default() -> Self {
         Self {
             data_dir: "./rememnemosyne_data".to_string(),
@@ -63,7 +63,7 @@ impl Default for MnemosyneConfig {
 /// - Graph memory (entity relationships)
 /// - Temporal memory (timeline events)
 /// - Cognitive engine (micro-embeddings, prefetching)
-pub struct MnemosyneEngine {
+pub struct RememnosyneEngine {
     pub router: Arc<MemoryRouter>,
     pub context_builder: Arc<ContextBuilderEngine>,
     #[cfg(feature = "persistence")]
@@ -74,12 +74,12 @@ pub struct MnemosyneEngine {
     pub storage: Option<()>,
     #[cfg(not(feature = "persistence"))]
     pub snapshots: Option<()>,
-    config: MnemosyneConfig,
+    config: RememnosyneConfig,
 }
 
-impl MnemosyneEngine {
+impl RememnosyneEngine {
     /// Create a new engine with the given configuration
-    pub fn new(config: MnemosyneConfig) -> Result<Self> {
+    pub fn new(config: RememnosyneConfig) -> Result<Self> {
         // Create memory stores
         let semantic = Arc::new(SemanticMemoryStore::new(config.semantic.clone()));
         let episodic = Arc::new(EpisodicMemoryStore::new(config.episodic.clone()));
@@ -125,12 +125,12 @@ impl MnemosyneEngine {
 
     /// Create with default configuration
     pub fn default() -> Result<Self> {
-        Self::new(MnemosyneConfig::default())
+        Self::new(RememnosyneConfig::default())
     }
 
     /// Create with in-memory storage only (no persistence)
     pub fn in_memory() -> Result<Self> {
-        let mut config = MnemosyneConfig::default();
+        let mut config = RememnosyneConfig::default();
         config.enable_persistence = false;
         Self::new(config)
     }
@@ -248,7 +248,7 @@ impl MnemosyneEngine {
 
 /// Create the appropriate storage backend based on config
 #[cfg(feature = "persistence")]
-fn create_storage_backend(config: &MnemosyneConfig) -> Result<Arc<dyn StorageBackend + Send + Sync>> {
+fn create_storage_backend(config: &RememnosyneConfig) -> Result<Arc<dyn StorageBackend + Send + Sync>> {
     let storage_path = format!("{}/data", config.data_dir);
 
     #[cfg(feature = "persistence")]
@@ -280,20 +280,20 @@ fn create_storage_backend(config: &MnemosyneConfig) -> Result<Arc<dyn StorageBac
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineStats {
     pub router: crate::router::RouterStats,
-    pub config: MnemosyneConfig,
+    pub config: RememnosyneConfig,
     pub has_storage: bool,
     pub has_snapshots: bool,
 }
 
 /// Builder pattern for creating engine
 pub struct MnemosyneBuilder {
-    config: MnemosyneConfig,
+    config: RememnosyneConfig,
 }
 
 impl MnemosyneBuilder {
     pub fn new() -> Self {
         Self {
-            config: MnemosyneConfig::default(),
+            config: RememnosyneConfig::default(),
         }
     }
 
@@ -332,8 +332,8 @@ impl MnemosyneBuilder {
         self
     }
 
-    pub fn build(self) -> Result<MnemosyneEngine> {
-        MnemosyneEngine::new(self.config)
+    pub fn build(self) -> Result<RememnosyneEngine> {
+        RememnosyneEngine::new(self.config)
     }
 }
 
