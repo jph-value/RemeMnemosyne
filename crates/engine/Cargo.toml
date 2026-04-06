@@ -1,0 +1,29 @@
+[package]
+name = "mnemosyne-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mnemosyne-core = { path = "../core" }
+mnemosyne-semantic = { path = "../semantic" }
+mnemosyne-episodic = { path = "../episodic" }
+mnemosyne-graph = { path = "../graph" }
+mnemosyne-temporal = { path = "../temporal" }
+mnemosyne-cognitive = { path = "../cognitive" }
+mnemosyne-storage = { path = "../storage", default-features = false }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []
+persistence = ["mnemosyne-storage/rocksdb-storage"]
