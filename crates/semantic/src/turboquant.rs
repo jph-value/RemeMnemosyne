@@ -126,7 +126,7 @@ impl TurboQuantizer {
 
         let dim = self.config.dimensions;
         let sub_dim = dim / self.config.num_subquantizers;
-        let n = data.len();
+        let _n = data.len();
 
         // Validate dimensions
         for vec in data {
@@ -215,7 +215,7 @@ impl TurboQuantizer {
             return Err(MemoryError::Quantization("Quantizer not trained".into()));
         }
 
-        let sub_dim = self.config.dimensions / self.config.num_subquantizers;
+        let _sub_dim = self.config.dimensions / self.config.num_subquantizers;
         let mut reconstructed = Vec::with_capacity(self.config.dimensions);
 
         for (m, &code_idx) in code.codes.iter().enumerate() {
@@ -388,7 +388,7 @@ impl TurboQuantizer {
                 .iter()
                 .zip(distances.iter_mut())
                 .enumerate()
-                .map(|(i, (point, dist))| {
+                .map(|(_i, (point, dist))| {
                     let last_centroid = centroids.last().unwrap();
                     let new_dist = self.sq_l2dist(point, last_centroid);
                     *dist = (*dist).min(new_dist);

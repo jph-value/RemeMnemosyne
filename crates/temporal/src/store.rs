@@ -1,11 +1,9 @@
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rememnemosyne_core::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::event::{TemporalEvent, TimeWindow, TemporalEventType};
 use crate::timeline::{Timeline, TimelineManager};
@@ -313,6 +311,7 @@ impl TemporalMemoryStore {
 // Note: TemporalMemoryStore trait from core is not implemented here
 // due to naming conflict. The struct provides its own methods directly.
 
+#[allow(dead_code)]
 fn convert_to_memory_event(event: TemporalEvent) -> MemoryEvent {
     MemoryEvent {
         id: event.id,

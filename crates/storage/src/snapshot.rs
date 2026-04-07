@@ -1,7 +1,7 @@
 //! Snapshot management for storage backends.
 
 use rememnemosyne_core::Result;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use super::backend::StorageBackend;

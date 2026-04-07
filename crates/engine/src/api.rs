@@ -3,7 +3,6 @@ use rememnemosyne_core::*;
 use serde::{Deserialize, Serialize};
 
 use crate::builder::RememnosyneEngine;
-use crate::router::MemoryResponse;
 
 /// Core trait for agent memory operations
 #[async_trait]
@@ -77,6 +76,7 @@ impl AgentMemory for RememnosyneEngine {
 
 /// Streaming memory operations for real-time processing
 pub struct StreamingMemoryHandler {
+    #[allow(dead_code)]
     engine: RememnosyneEngine,
     buffer: Vec<String>,
     buffer_size: usize,
@@ -108,12 +108,12 @@ impl StreamingMemoryHandler {
         }
 
         let combined = self.buffer.join(" ");
-        let summary = combined.chars().take(100).collect::<String>() + "...";
-        
-        // Spawn async task to store
-        let engine = &self.engine;
-        // Would need async context - simplified for now
-        
+        let _summary = combined.chars().take(100).collect::<String>() + "...";
+
+        // TODO: Spawn async task to store using self.engine
+        // Currently requires async context - store would be called as:
+        // self.engine.remember(&combined, &_summary, MemoryTrigger::SystemOutput)
+
         self.buffer.clear();
     }
 

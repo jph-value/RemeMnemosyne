@@ -1,0 +1,42 @@
+# Medium Cloud Deployment Profile
+# Optimized for mid-tier cloud instances (4GB memory)
+
+name = "Medium Cloud Deployment (4GB)"
+description = "Balanced cloud deployment with good performance and capacity"
+version = "0.1.0"
+
+[engine]
+data_dir = "./rememnemosyne_data"
+enable_persistence = true
+max_memory_mb = 4096
+embedding_dimensions = 768
+
+[semantic]
+dimensions = 768
+ef_search = 150
+flat_index_threshold = 500
+enable_quantization = true
+
+[router]
+max_results_per_store = 10
+enable_prefetch = true
+prefetch_threshold = 0.5
+combine_scores = true
+
+[context]
+max_tokens = 3000
+max_memories = 10
+max_entities = 8
+include_relationships = true
+include_timeline = false
+prioritize_decisions = true
+include_summaries = true
+format_strategy = "ContextBlock"
+
+[pruner]
+min_importance = 0.05
+max_age_days = 60
+max_memories = 200_000
+decay_factor = 0.995
+min_access_count = 1
+archive_mode = true

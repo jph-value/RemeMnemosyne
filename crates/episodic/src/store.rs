@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::artifact::{Episode, Exchange, EpisodicArtifact, EpisodicArtifactType, ConversationContext};
-use crate::session::{MemorySession, SessionManager};
+use crate::session::SessionManager;
 use crate::summarizer::{EpisodeSummarizer, SummarizerConfig, EpisodeSummary};
 
 /// Configuration for episodic memory store
@@ -245,7 +245,7 @@ impl EpisodicMemoryStore {
             .collect();
 
         for id in to_archive {
-            if let Some((_, mut episode)) = self.episodes.remove(&id) {
+            if let Some((_, episode)) = self.episodes.remove(&id) {
                 // Store summary before removal
                 if let Ok(summary) = self.summarizer.summarize_episode(&episode) {
                     self.summaries.insert(id, summary);

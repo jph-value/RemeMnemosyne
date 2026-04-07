@@ -1,0 +1,42 @@
+# Light Cloud Deployment Profile
+# Optimized for small-scale cloud instances (1-2GB memory)
+
+name = "Light Cloud Deployment (1GB)"
+description = "Lightweight cloud deployment with balanced performance"
+version = "0.1.0"
+
+[engine]
+data_dir = "./rememnemosyne_data"
+enable_persistence = true
+max_memory_mb = 1024
+embedding_dimensions = 384
+
+[semantic]
+dimensions = 384
+ef_search = 100
+flat_index_threshold = 200
+enable_quantization = true
+
+[router]
+max_results_per_store = 5
+enable_prefetch = true
+prefetch_threshold = 0.6
+combine_scores = true
+
+[context]
+max_tokens = 1500
+max_memories = 5
+max_entities = 5
+include_relationships = false
+include_timeline = false
+prioritize_decisions = true
+include_summaries = true
+format_strategy = "SystemPrefix"
+
+[pruner]
+min_importance = 0.1
+max_age_days = 30
+max_memories = 50_000
+decay_factor = 0.99
+min_access_count = 1
+archive_mode = true

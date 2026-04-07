@@ -3,7 +3,6 @@
 //! This is the default backend - no C/C++ dependencies required.
 
 use rememnemosyne_core::{MemoryError, Result};
-use serde::{de::DeserializeOwned, Serialize};
 use std::path::Path;
 
 use super::backend::StorageBackend;

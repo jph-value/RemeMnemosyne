@@ -1,4 +1,4 @@
-use rememnemosyne_core::{EntityId, MemoryError, Result};
+use rememnemosyne_core::EntityId;
 use petgraph::graph::{Graph, NodeIndex};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -304,7 +304,7 @@ impl PathAnalysis {
     pub fn analyze_path(
         path: &RelationshipPath,
         entities: &HashMap<EntityId, GraphEntity>,
-        relationships: &HashMap<uuid::Uuid, GraphRelationship>,
+        _relationships: &HashMap<uuid::Uuid, GraphRelationship>,
     ) -> PathAnalysisResult {
         let mut result = PathAnalysisResult::new();
 

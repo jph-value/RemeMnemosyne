@@ -1,4 +1,4 @@
-use rememnemosyne_core::{MemoryId, Result};
+use rememnemosyne_core::MemoryId;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -75,7 +75,7 @@ impl MemoryPrefetcher {
     }
 
     /// Prefetch memories based on query text
-    pub fn prefetch(&self, query: &str, all_memory_ids: &[MemoryId]) -> Vec<MemoryId> {
+    pub fn prefetch(&self, query: &str, _all_memory_ids: &[MemoryId]) -> Vec<MemoryId> {
         let query_embedding = self.embedder.embed(query);
         let intents = self.intent_detector.detect(query);
 
@@ -184,9 +184,9 @@ impl MemoryPrefetcher {
     // Private helper methods
 
     fn intent_based_prefetch(&self, intents: &[(String, f32)]) -> Vec<(MemoryId, f32)> {
-        let mut results = Vec::new();
+        let results = Vec::new();
 
-        for (intent, score) in intents {
+        for (intent, _score) in intents {
             match intent.as_str() {
                 "recall" | "search" => {
                     // Would boost memories tagged as relevant

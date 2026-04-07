@@ -27,5 +27,14 @@ tracing = { workspace = true }
 regex = "1"
 
 [features]
-default = ["rememnemosyne-storage/sled-storage", "rememnemosyne-storage/archive"]
+default = ["persistence", "archive"]
 persistence = ["rememnemosyne-storage/persistence"]
+sled-storage = ["rememnemosyne-storage/sled-storage"]
+archive = ["rememnemosyne-storage/archive"]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "engine_benchmark"
+harness = false

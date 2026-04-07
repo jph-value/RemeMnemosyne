@@ -120,10 +120,8 @@ impl IntentDetector {
 
         for (intent, keywords) in &self.patterns {
             let mut matches = 0;
-            let mut total_keyword_len = 0;
 
             for keyword in keywords {
-                total_keyword_len += keyword.len();
                 if text_lower.contains(keyword) {
                     matches += 1;
                 }

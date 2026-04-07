@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::artifact::{ConversationContext, Episode, Exchange};
+use crate::artifact::{ConversationContext, Episode};
 
 /// A memory session groups related episodes
 #[derive(Debug, Clone, Serialize, Deserialize)]

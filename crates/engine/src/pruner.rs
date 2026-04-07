@@ -1,10 +1,11 @@
 /// Memory lifecycle management: importance decay, pruning, deduplication.
 /// Runs periodically to keep the memory system healthy at scale.
-use chrono::{Duration, Utc};
+use chrono::Utc;
+#[cfg(test)]
+use chrono::Duration;
 use rememnemosyne_core::{Importance, MemoryArtifact, MemoryId};
 use rememnemosyne_storage::archive::{ArchiveCatalog, ArchiveConfig, ArchiveStats, MemoryArchive};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Configuration for memory lifecycle management

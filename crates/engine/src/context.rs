@@ -112,14 +112,14 @@ impl ContextBuilderEngine {
     pub fn build_context(
         &self,
         response: &crate::router::MemoryResponse,
-        entities: Vec<GraphEntity>,
-        decisions: Vec<rememnemosyne_episodic::artifact::Decision>,
+        extra_entities: Vec<GraphEntity>,
+        _decisions: Vec<rememnemosyne_episodic::artifact::Decision>,
     ) -> ContextBundle {
         let mut bundle = ContextBundle::new();
 
         // Add memories (limited by config)
         let mut current_tokens = 0;
-        let mut added_memories = 0;
+        let _added_memories = 0;
 
         for result in response.results.iter().take(self.config.max_memories) {
             let memory_tokens = self.estimate_tokens(&result.memory.summary);
@@ -130,23 +130,16 @@ impl ContextBuilderEngine {
 
             bundle.add_memory(result.memory.clone(), result.relevance);
             current_tokens += memory_tokens;
-            added_memories += 1;
         }
 
-        // Add entities (limited by config)
-        for graph_entity in entities.into_iter().take(self.config.max_entities) {
-            // Convert GraphEntity to Entity
-            let entity = Entity {
-                id: graph_entity.id,
-                name: graph_entity.name,
-                entity_type: graph_entity.entity_type,
-                description: graph_entity.description,
-                embedding: graph_entity.embedding,
-                attributes: graph_entity.attributes,
-                created_at: graph_entity.created_at,
-                updated_at: graph_entity.updated_at,
-                mention_count: graph_entity.mention_count,
-            };
+        // Add entities from response first, then extras
+        for graph_entity in response.entities.iter().take(self.config.max_entities) {
+            let entity = self.graph_entity_to_entity(graph_entity);
+            bundle.entities.push(entity);
+        }
+        let remaining_entity_slots = self.config.max_entities.saturating_sub(bundle.entities.len());
+        for graph_entity in extra_entities.into_iter().take(remaining_entity_slots) {
+            let entity = self.graph_entity_to_entity(&graph_entity);
             bundle.entities.push(entity);
         }
 
@@ -157,6 +150,21 @@ impl ContextBuilderEngine {
 
         bundle.total_tokens_estimate = current_tokens;
         bundle
+    }
+
+    /// Convert GraphEntity to Entity
+    fn graph_entity_to_entity(&self, graph_entity: &GraphEntity) -> Entity {
+        Entity {
+            id: graph_entity.id,
+            name: graph_entity.name.clone(),
+            entity_type: graph_entity.entity_type.clone(),
+            description: graph_entity.description.clone(),
+            embedding: graph_entity.embedding.clone(),
+            attributes: graph_entity.attributes.clone(),
+            created_at: graph_entity.created_at,
+            updated_at: graph_entity.updated_at,
+            mention_count: graph_entity.mention_count,
+        }
     }
 
     /// Build formatted context string for LLM
@@ -250,21 +258,19 @@ impl ContextBuilderEngine {
             parts.push(String::new());
         }
 
-        // Decisions
-        if !bundle.memories.is_empty() {
-            let decisions: Vec<_> = bundle
-                .memories
-                .iter()
-                .filter(|m| matches!(m.trigger, MemoryTrigger::Decision))
-                .collect();
+        // Decisions - extract memories with Decision trigger
+        let decision_memories: Vec<_> = bundle
+            .memories
+            .iter()
+            .filter(|m| matches!(m.trigger, MemoryTrigger::Decision))
+            .collect();
 
-            if !decisions.is_empty() {
-                parts.push("### Key Decisions".to_string());
-                for decision in decisions.iter().take(5) {
-                    parts.push(format!("- {}", decision.summary));
-                }
-                parts.push(String::new());
+        if !decision_memories.is_empty() {
+            parts.push("### Key Decisions".to_string());
+            for decision in decision_memories.iter().take(5) {
+                parts.push(format!("- {}", decision.summary));
             }
+            parts.push(String::new());
         }
 
         parts.join("\n")

@@ -1,8 +1,7 @@
-use rememnemosyne_core::{EntityRef, EntityType, MemoryError, Result};
+use rememnemosyne_core::{EntityRef, EntityType, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-use crate::artifact::{Decision, DecisionOutcome, Episode, Exchange};
+use crate::artifact::{Decision, Episode, Exchange};
 
 /// Configuration for the summarizer
 #[derive(Debug, Clone, Serialize, Deserialize)]

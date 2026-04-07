@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rememnemosyne_core::{EntityId, EventType, MemoryId};
+use rememnemosyne_core::{EntityId, MemoryId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;

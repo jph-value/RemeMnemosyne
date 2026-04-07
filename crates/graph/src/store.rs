@@ -113,7 +113,7 @@ impl GraphMemoryStore {
         relationship_type: RelationshipType,
         strength: f32,
     ) -> Result<Uuid> {
-        let mut relationship = GraphRelationship::new(
+        let relationship = GraphRelationship::new(
             source_id,
             target_id,
             relationship_type,

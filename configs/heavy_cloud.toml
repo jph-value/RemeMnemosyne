@@ -1,0 +1,42 @@
+# Heavy Cloud Deployment Profile
+# Optimized for large-scale cloud instances (8GB+ memory)
+
+name = "Heavy Cloud Deployment (8GB)"
+description = "High-capacity cloud deployment with full feature set"
+version = "0.1.0"
+
+[engine]
+data_dir = "./rememnemosyne_data"
+enable_persistence = true
+max_memory_mb = 8192
+embedding_dimensions = 1536
+
+[semantic]
+dimensions = 1536
+ef_search = 200
+flat_index_threshold = 500
+enable_quantization = true
+
+[router]
+max_results_per_store = 20
+enable_prefetch = true
+prefetch_threshold = 0.4
+combine_scores = true
+
+[context]
+max_tokens = 4000
+max_memories = 20
+max_entities = 15
+include_relationships = true
+include_timeline = true
+prioritize_decisions = true
+include_summaries = true
+format_strategy = "ContextBlock"
+
+[pruner]
+min_importance = 0.02
+max_age_days = 90
+max_memories = 500_000
+decay_factor = 0.998
+min_access_count = 0
+archive_mode = true

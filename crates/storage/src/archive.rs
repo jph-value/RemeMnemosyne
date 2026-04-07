@@ -15,12 +15,14 @@
 /// The catalog stores metadata without decompression so you can search/filter
 /// archived memories without touching the compressed data.
 use chrono::{DateTime, Utc};
-use rememnemosyne_core::{Importance, MemoryArtifact, MemoryId, MemoryTrigger, MemoryType};
+use rememnemosyne_core::{Importance, MemoryArtifact, MemoryId, MemoryType};
+#[cfg(test)]
+use rememnemosyne_core::MemoryTrigger;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Lightweight metadata for archived memories.
 /// Stored uncompressed in the catalog for fast filtering without decompression.
@@ -380,9 +382,9 @@ impl MemoryArchive {
         active_entries.sort_by_key(|(_, offset, _)| *offset);
 
         // Collect metadata needed for writing (no borrow of catalog)
-        let entry_data: Vec<(MemoryId, u64)> = active_entries
+        let _entry_data: Vec<(MemoryId, u64)> = active_entries
             .iter()
-            .map(|(id, offset, compressed_size)| (*id, *compressed_size))
+            .map(|(id, _offset, compressed_size)| (*id, *compressed_size))
             .collect();
 
         // Create temp data file
@@ -391,7 +393,7 @@ impl MemoryArchive {
         let mut new_offsets: Vec<(MemoryId, u64)> = Vec::new();
         let mut new_offset = 0u64;
 
-        for (i, (id, old_offset, compressed_size)) in active_entries.iter().enumerate() {
+        for (_i, (id, old_offset, compressed_size)) in active_entries.iter().enumerate() {
             // Read from old file
             let mut data_file = BufReader::new(fs::File::open(&self.data_path)?);
             data_file.seek(SeekFrom::Start(*old_offset))?;

@@ -1,8 +1,8 @@
 use rememnemosyne_core::*;
 use rememnemosyne_semantic::SemanticMemoryStore;
 use rememnemosyne_episodic::EpisodicMemoryStore;
-use rememnemosyne_graph::GraphMemoryStore;
-use rememnemosyne_temporal::TemporalMemoryStore;
+use rememnemosyne_graph::{GraphMemoryStore, entity::GraphEntity};
+use rememnemosyne_temporal::{TemporalMemoryStore, TemporalEvent};
 use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher, MicroEmbedder};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -72,7 +72,6 @@ impl MemoryRouter {
     /// Query all memory stores with unified result
     pub async fn query(&self, query: &MemoryQuery) -> Result<MemoryResponse> {
         let mut response = MemoryResponse::new();
-        let mut prefetch_ids = Vec::new();
 
         // Generate micro-embedding for query if text provided
         let query_embedding = if let Some(ref text) = query.text {
@@ -100,16 +99,7 @@ impl MemoryRouter {
             query.clone()
         };
 
-        // Prefetch if enabled
-        if self.config.enable_prefetch {
-            if let Some(ref text) = query.text {
-                let prefetcher = self.prefetcher.read();
-                // Would need all memory IDs - simplified
-                prefetch_ids = prefetcher.prefetch(text, &[]);
-            }
-        }
-
-        // Query semantic memory (now uses HNSW via enriched embedding)
+        // Query semantic memory (uses HNSW via enriched embedding)
         if let Ok(semantic_results) = self.semantic.query(&enriched_query).await {
             for memory in semantic_results.into_iter().take(self.config.max_results_per_store) {
                 let relevance = memory.compute_relevance();
@@ -125,17 +115,33 @@ impl MemoryRouter {
             }
         }
 
+        // Query graph memory for relevant entities
+        if let Some(ref text) = enriched_query.text {
+            let entities = self.graph.search_entities(text, self.config.max_results_per_store).await;
+            for entity in entities {
+                response.entities.push(entity);
+            }
+        }
+
+        // Query temporal memory for relevant timeline events
+        if let Some(ref text) = enriched_query.text {
+            let events = self.temporal.search_events(text, self.config.max_results_per_store).await;
+            for event in events {
+                response.temporal_events.push(event);
+            }
+        }
+
         // Combine and rank results
         if self.config.combine_scores {
             response.sort_by_relevance();
         }
 
-        // Predict next likely memories
+        // Predict next likely memories using prefetch data
         if self.config.enable_prefetch {
-            let predictor = self.predictor.read();
-            // Would pass candidate IDs - simplified
             let query_text = query.text.as_deref().unwrap_or("");
-            response.predicted_next = predictor.predict(query_text, &[]);
+            let predictor = self.predictor.read();
+            let ids: Vec<_> = response.results.iter().map(|r| r.memory.id).collect();
+            response.predicted_next = predictor.predict(query_text, &ids);
         }
 
         Ok(response)
@@ -237,6 +243,8 @@ impl MemoryRouter {
 #[derive(Debug, Clone)]
 pub struct MemoryResponse {
     pub results: Vec<MemoryResult>,
+    pub entities: Vec<GraphEntity>,
+    pub temporal_events: Vec<TemporalEvent>,
     pub predicted_next: Vec<(uuid::Uuid, f32)>,
     pub total_search_time_ms: u64,
 }
@@ -245,6 +253,8 @@ impl MemoryResponse {
     pub fn new() -> Self {
         Self {
             results: Vec::new(),
+            entities: Vec::new(),
+            temporal_events: Vec::new(),
             predicted_next: Vec::new(),
             total_search_time_ms: 0,
         }

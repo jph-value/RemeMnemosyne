@@ -1,4 +1,4 @@
-use rememnemosyne_core::{MemoryId, Result};
+use rememnemosyne_core::MemoryId;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
@@ -32,7 +32,8 @@ pub struct ContextPredictor {
     embedding_history: VecDeque<Vec<f32>>,
     /// History of retrieved memory IDs
     retrieval_history: VecDeque<Vec<MemoryId>>,
-    /// Transition probabilities between memory clusters
+    /// Transition probabilities between memory clusters (reserved for future sequence modeling)
+    #[allow(dead_code)]
     transition_matrix: HashMap<(usize, usize), f32>,
 }
 
