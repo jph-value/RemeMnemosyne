@@ -1,0 +1,17 @@
+[profile.coverage]
+inherits = "test"
+opt-level = 0
+debug = true
+lto = false
+codegen-units = 256
+incremental = true
+
+# Coverage instrumentation flags
+[profile.coverage.build-override]
+opt-level = 0
+
+[workspace.metadata.cargo-llvm-cov]
+# Configure coverage reporting
+fail-under-lines = 70
+output-path = "coverage/lcov.info"
+html = true
