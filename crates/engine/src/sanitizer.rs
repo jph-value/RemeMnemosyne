@@ -32,6 +32,7 @@ pub struct SanitizeResult {
 }
 
 /// Sanitize user input text
+#[inline]
 pub fn sanitize_input(text: &str) -> SanitizeResult {
     let lower = text.to_lowercase();
     let mut detected = Vec::new();
@@ -69,6 +70,7 @@ pub fn sanitize_input(text: &str) -> SanitizeResult {
 /// Sanitize memory context before it is passed to the LLM.
 /// Ensures the context string does not contain injection payloads
 /// that could have been stored maliciously in the memory system.
+#[inline]
 pub fn sanitize_context(context: &str) -> String {
     // Strip any control characters that could break prompt delimiters
     let cleaned: String = context

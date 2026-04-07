@@ -111,6 +111,7 @@ impl MicroEmbedder {
     }
 
     /// Generate micro-embedding for text
+    #[inline]
     pub fn embed(&self, text: &str) -> Vec<f32> {
         // Check cache
         {

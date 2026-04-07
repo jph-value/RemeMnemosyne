@@ -193,6 +193,7 @@ impl HNSWIndex {
         level
     }
 
+    #[inline]
     fn search_layer(&self, entry_id: usize, query: &[f32], ef: usize, layer: usize) -> Vec<usize> {
         let mut visited = std::collections::HashSet::new();
         let mut candidates = BinaryHeap::new();

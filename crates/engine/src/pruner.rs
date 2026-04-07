@@ -226,6 +226,7 @@ impl MemoryPruner {
 }
 
 /// Simple cosine similarity for duplicate detection
+#[inline]
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() {
         return 0.0;

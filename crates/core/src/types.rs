@@ -179,6 +179,7 @@ impl MemoryArtifact {
         self.last_accessed = Some(Utc::now());
     }
 
+    #[inline]
     pub fn compute_relevance(&self) -> f32 {
         let age_hours = (Utc::now() - self.timestamp).num_hours() as f32;
 
