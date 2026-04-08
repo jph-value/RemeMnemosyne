@@ -1,7 +1,7 @@
 pub mod event;
-pub mod timeline;
 pub mod store;
+pub mod timeline;
 
 pub use event::*;
-pub use timeline::*;
 pub use store::*;
+pub use timeline::*;

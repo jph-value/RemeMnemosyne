@@ -1,8 +1,7 @@
 /// HTTP server with health endpoint and basic API
-/// 
+///
 /// This module provides an optional HTTP server for the RemeMnemosyne engine,
 /// enabling remote access via REST API. Enabled with the `http-server` feature flag.
-
 use axum::{
     extract::State,
     http::StatusCode,
@@ -81,12 +80,9 @@ pub struct RecallResponse {
 
 /// Start the HTTP server
 #[cfg(feature = "http-server")]
-pub async fn start_server(
-    engine: Arc<RememnosyneEngine>,
-    config: HttpServerConfig,
-) -> Result<()> {
+pub async fn start_server(engine: Arc<RememnosyneEngine>, config: HttpServerConfig) -> Result<()> {
     let state = AppState { engine };
-    
+
     // Build router
     let app = Router::new()
         .route("/health", get(health_check))
@@ -94,18 +90,18 @@ pub async fn start_server(
         .route("/api/v1/recall", post(recall))
         .route("/api/v1/metrics", get(get_metrics))
         .with_state(state);
-    
+
     let addr: SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .map_err(|e| MemoryError::Storage(format!("Invalid address: {}", e)))?;
-    
+
     tracing::info!(address = %addr, "Starting HTTP server");
-    
+
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
         .map_err(|e| MemoryError::Storage(format!("Server error: {}", e)))?;
-    
+
     Ok(())
 }
 
@@ -133,12 +129,13 @@ async fn remember(
         },
         None => MemoryTrigger::UserInput,
     };
-    
-    let id = state.engine.remember(&req.content, &req.summary, trigger).await?;
-    
-    Ok(Json(RememberResponse {
-        id: id.to_string(),
-    }))
+
+    let id = state
+        .engine
+        .remember(&req.content, &req.summary, trigger)
+        .await?;
+
+    Ok(Json(RememberResponse { id: id.to_string() }))
 }
 
 /// Recall handler
@@ -147,7 +144,7 @@ async fn recall(
     Json(req): Json<RecallRequest>,
 ) -> Result<Json<RecallResponse>> {
     let context = state.engine.recall(&req.query).await?;
-    
+
     Ok(Json(RecallResponse {
         summaries: context.summaries.clone(),
         memories: context.memories.clone(),
@@ -162,7 +159,7 @@ async fn get_metrics(State(state): State<Arc<AppState>>) -> Result<String> {
         // Would integrate with the metrics module
         Ok("Metrics endpoint - integrate with Prometheus metrics module".to_string())
     }
-    
+
     #[cfg(not(feature = "metrics"))]
     {
         let _ = state;
@@ -199,7 +196,7 @@ mod tests {
             version: "0.1.0".to_string(),
             uptime_seconds: 100,
         };
-        
+
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("healthy"));
     }

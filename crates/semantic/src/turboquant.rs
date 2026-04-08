@@ -79,7 +79,7 @@ pub struct TurboQuantizer {
 impl TurboQuantizer {
     /// Create a new quantizer with given dimensions and bits
     pub fn new(dimensions: usize, bits: u8, num_subquantizers: usize, seed: u64) -> Result<Self> {
-        if dimensions % num_subquantizers != 0 {
+        if !dimensions.is_multiple_of(num_subquantizers) {
             return Err(MemoryError::Quantization(format!(
                 "Dimensions {} must be divisible by subquantizers {}",
                 dimensions, num_subquantizers
@@ -387,8 +387,7 @@ impl TurboQuantizer {
             let total_dist: f32 = data
                 .iter()
                 .zip(distances.iter_mut())
-                .enumerate()
-                .map(|(_i, (point, dist))| {
+                .map(|(point, dist)| {
                     let last_centroid = centroids.last().unwrap();
                     let new_dist = self.sq_l2dist(point, last_centroid);
                     *dist = (*dist).min(new_dist);

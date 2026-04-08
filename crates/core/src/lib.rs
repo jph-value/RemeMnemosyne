@@ -1,18 +1,18 @@
-pub mod error;
-pub mod types;
-pub mod traits;
-pub mod query;
-pub mod typed_memory;
-pub mod palace;
 pub mod embedding;
+pub mod error;
+pub mod palace;
+pub mod query;
+pub mod traits;
+pub mod typed_memory;
+pub mod types;
 
-pub use error::{MemoryError, Result};
-pub use types::*;
-pub use traits::*;
-pub use query::*;
-pub use typed_memory::*;
-pub use palace::*;
 pub use embedding::*;
+pub use error::{MemoryError, Result};
+pub use palace::*;
+pub use query::*;
+pub use traits::*;
+pub use typed_memory::*;
+pub use types::*;
 
 #[cfg(test)]
 mod tests {
@@ -42,9 +42,7 @@ mod tests {
 
     #[test]
     fn test_memory_query_builder() {
-        let query = MemoryQuery::new()
-            .with_text("search term")
-            .with_limit(5);
+        let query = MemoryQuery::new().with_text("search term").with_limit(5);
 
         assert_eq!(query.text, Some("search term".to_string()));
         assert_eq!(query.limit, Some(5));
@@ -117,7 +115,7 @@ mod tests {
         .with_importance(Importance::Critical);
 
         let relevance = artifact.compute_relevance();
-        assert!(relevance >= 0.0 && relevance <= 1.0);
+        assert!((0.0..=1.0).contains(&relevance));
     }
 
     #[test]
@@ -158,7 +156,7 @@ mod tests {
         for i in 0..5 {
             let artifact = MemoryArtifact::new(
                 MemoryType::Semantic,
-                &"a".repeat(100), // ~25 tokens each
+                "a".repeat(100), // ~25 tokens each
                 "Content",
                 vec![0.1; 10],
                 MemoryTrigger::UserInput,
@@ -175,12 +173,7 @@ mod tests {
         let source = EntityId::new_v4();
         let target = EntityId::new_v4();
 
-        let rel = Relationship::new(
-            source,
-            target,
-            RelationshipType::DependsOn,
-            0.85,
-        );
+        let rel = Relationship::new(source, target, RelationshipType::DependsOn, 0.85);
 
         assert_eq!(rel.source, source);
         assert_eq!(rel.target, target);

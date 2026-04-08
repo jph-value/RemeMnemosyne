@@ -182,7 +182,7 @@ impl HNSWIndex {
     fn random_level(&mut self) -> usize {
         let mut level = 0;
         let mut r = self.level_generator;
-        while r % 2 == 0 && level < 16 {
+        while r.is_multiple_of(2) && level < 16 {
             level += 1;
             r >>= 1;
         }

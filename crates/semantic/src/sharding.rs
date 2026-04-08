@@ -1,12 +1,13 @@
 /// Memory sharding by entity type
-/// 
+///
 /// This module provides sharding capabilities to split memories by entity type,
 /// enabling better scalability and parallel processing.
 /// Enabled with the `sharding` feature flag.
-
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use rememnemosyne_core::{EntityId, EntityType, MemoryArtifact, MemoryError, MemoryId, MemoryQuery, MemoryType, Result};
+use rememnemosyne_core::{
+    EntityId, EntityType, MemoryArtifact, MemoryError, MemoryId, MemoryQuery, MemoryType, Result,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -64,17 +65,17 @@ impl MemoryShard {
             max_capacity,
         }
     }
-    
+
     /// Check if shard has capacity
     pub fn has_capacity(&self) -> bool {
         self.memories.len() < self.max_capacity
     }
-    
+
     /// Get memory count
     pub fn len(&self) -> usize {
         self.memories.len()
     }
-    
+
     /// Check if shard is empty
     pub fn is_empty(&self) -> bool {
         self.memories.is_empty()
@@ -96,7 +97,7 @@ impl ShardedMemoryStore {
     /// Create a new sharded store
     pub fn new(config: ShardingConfig) -> Self {
         let shards = DashMap::new();
-        
+
         // Pre-create shards for each entity type
         if config.enabled {
             for entity_type in Self::entity_types() {
@@ -110,55 +111,61 @@ impl ShardedMemoryStore {
                 }
             }
         }
-        
+
         Self {
             config,
             shards,
             memory_to_shard: DashMap::new(),
         }
     }
-    
+
     /// Create with default config
     pub fn default_store() -> Self {
         Self::new(ShardingConfig::default())
     }
-    
+
     /// Store a memory artifact
     pub async fn store(&self, artifact: MemoryArtifact) -> Result<MemoryId> {
         if !self.config.enabled {
             // If sharding disabled, just use a single shard
             return Err(MemoryError::Storage("Sharding not enabled".to_string()));
         }
-        
+
         let id = artifact.id;
         let memory_type = artifact.memory_type;
-        
+
         // Determine which shard to use
         let shard_id = self.route_memory(memory_type, &id);
-        
+
         if let Some(shard) = self.shards.get(&shard_id) {
             let mut shard = shard.write();
-            
+
             if !shard.has_capacity() {
                 // Shard is full
                 if self.config.auto_rebalance {
                     // TODO: Implement rebalancing
                     tracing::warn!(shard_id = %shard_id, "Shard full, rebalancing not yet implemented");
                 }
-                return Err(MemoryError::CapacityExceeded(format!("Shard {} is full", shard_id)));
+                return Err(MemoryError::CapacityExceeded(format!(
+                    "Shard {} is full",
+                    shard_id
+                )));
             }
-            
+
             shard.memories.insert(id, artifact);
         } else {
-            return Err(MemoryError::NotFound(format!("Shard {} not found", shard_id)));
+            return Err(MemoryError::NotFound(format!(
+                "Shard {} not found",
+                shard_id
+            )));
         }
-        
+
         // Cache the mapping
         self.memory_to_shard.insert(id, shard_id);
-        
+
         Ok(id)
     }
-    
+
     /// Get a memory artifact by ID
     pub async fn get(&self, id: &MemoryId) -> Result<Option<MemoryArtifact>> {
         if let Some(shard_id) = self.memory_to_shard.get(id) {
@@ -169,7 +176,7 @@ impl ShardedMemoryStore {
         }
         Ok(None)
     }
-    
+
     /// Delete a memory artifact
     pub async fn delete(&self, id: &MemoryId) -> Result<bool> {
         if let Some(shard_id) = self.memory_to_shard.get(id) {
@@ -184,15 +191,15 @@ impl ShardedMemoryStore {
         }
         Ok(false)
     }
-    
+
     /// Query memories
     pub async fn query(&self, query: &MemoryQuery) -> Result<Vec<MemoryArtifact>> {
         let mut results = Vec::new();
-        
+
         // Search across all shards
         for entry in self.shards.iter() {
             let shard = entry.value().read();
-            
+
             for (_id, artifact) in &shard.memories {
                 // Apply filters
                 if self.matches_query(artifact, query) {
@@ -200,22 +207,24 @@ impl ShardedMemoryStore {
                 }
             }
         }
-        
+
         // Sort by relevance
         results.sort_by(|a, b| {
             let score_a = a.compute_relevance();
             let score_b = b.compute_relevance();
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
-        
+
         // Apply limit
         if let Some(limit) = query.limit {
             results.truncate(limit);
         }
-        
+
         Ok(results)
     }
-    
+
     /// Get shard statistics
     pub fn get_shard_stats(&self) -> HashMap<ShardId, usize> {
         self.shards
@@ -226,17 +235,17 @@ impl ShardedMemoryStore {
             })
             .collect()
     }
-    
+
     /// Get total memory count
     pub fn len(&self) -> usize {
         self.memory_to_shard.len()
     }
-    
+
     /// Check if store is empty
     pub fn is_empty(&self) -> bool {
         self.memory_to_shard.is_empty()
     }
-    
+
     /// Clear all shards
     pub fn clear(&self) -> Result<()> {
         for entry in self.shards.iter() {
@@ -246,34 +255,34 @@ impl ShardedMemoryStore {
         self.memory_to_shard.clear();
         Ok(())
     }
-    
+
     // Private helper methods
-    
+
     /// Route a memory to the appropriate shard
     fn route_memory(&self, memory_type: MemoryType, id: &MemoryId) -> ShardId {
         // Use hash to distribute across shards
         let hash = self.hash_memory(id);
         let shard_index = hash % self.config.shards_per_type;
-        
+
         // Map memory type to entity type for sharding
         let entity_type = self.memory_type_to_entity_type(memory_type);
-        
+
         ShardId {
             entity_type,
             shard_index,
         }
     }
-    
+
     /// Hash a memory ID to a shard index
     fn hash_memory(&self, id: &MemoryId) -> usize {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         id.hash(&mut hasher);
         hasher.finish() as usize
     }
-    
+
     /// Map memory type to entity type for sharding
     fn memory_type_to_entity_type(&self, memory_type: MemoryType) -> EntityType {
         match memory_type {
@@ -283,7 +292,7 @@ impl ShardedMemoryStore {
             MemoryType::Temporal => EntityType::Event,
         }
     }
-    
+
     /// Get all entity types
     fn entity_types() -> Vec<EntityType> {
         vec![
@@ -300,7 +309,7 @@ impl ShardedMemoryStore {
             EntityType::Custom("shard_default".to_string()),
         ]
     }
-    
+
     /// Check if an artifact matches a query
     fn matches_query(&self, artifact: &MemoryArtifact, query: &MemoryQuery) -> bool {
         // Apply type filter
@@ -309,28 +318,28 @@ impl ShardedMemoryStore {
                 return false;
             }
         }
-        
+
         // Apply importance filter
         if let Some(min_importance) = query.min_importance {
             if artifact.importance < min_importance {
                 return false;
             }
         }
-        
+
         // Apply tag filter
         if let Some(ref tags) = query.tags {
             if !tags.iter().any(|tag| artifact.tags.contains(tag)) {
                 return false;
             }
         }
-        
+
         // Apply session filter
         if let Some(session_id) = query.session_id {
             if artifact.session_id != Some(session_id) {
                 return false;
             }
         }
-        
+
         true
     }
 }
@@ -344,7 +353,7 @@ impl ShardedMemoryStore {
     pub fn new(_config: ShardingConfig) -> Self {
         Self
     }
-    
+
     pub fn default_store() -> Self {
         Self
     }
@@ -366,7 +375,7 @@ mod tests {
     #[tokio::test]
     async fn test_sharded_store_store_get() {
         let store = ShardedMemoryStore::default_store();
-        
+
         let artifact = MemoryArtifact::new(
             MemoryType::Semantic,
             "Test",
@@ -374,10 +383,10 @@ mod tests {
             vec![0.1; 128],
             rememnemosyne_core::MemoryTrigger::UserInput,
         );
-        
+
         let id = artifact.id;
         store.store(artifact.clone()).await.unwrap();
-        
+
         let retrieved = store.get(&id).await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().id, id);

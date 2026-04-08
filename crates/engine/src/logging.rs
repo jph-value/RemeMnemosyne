@@ -1,8 +1,7 @@
 /// Structured JSON logging
-/// 
+///
 /// This module provides structured JSON logging initialization for production deployments.
 /// Enabled with the `structured-logging` feature flag.
-
 use serde::{Deserialize, Serialize};
 
 /// Logging configuration
@@ -34,12 +33,14 @@ impl Default for LoggingConfig {
 
 /// Initialize structured JSON logging
 #[cfg(feature = "structured-logging")]
-pub fn init_logging(config: &LoggingConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-    
+pub fn init_logging(
+    config: &LoggingConfig,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
     // Parse log level
     let filter = EnvFilter::try_new(&config.level)?;
-    
+
     // Build subscriber
     if config.json_format {
         // JSON formatted logging
@@ -48,14 +49,14 @@ pub fn init_logging(config: &LoggingConfig) -> Result<(), Box<dyn std::error::Er
             .with_target(true)
             .with_thread_ids(true)
             .with_line_number(true);
-        
+
         if config.console_output {
             tracing_subscriber::registry()
                 .with(filter)
                 .with(fmt_layer)
                 .init();
         }
-        
+
         tracing::info!(config = ?config, "Structured JSON logging initialized");
     } else {
         // Human-readable formatted logging
@@ -63,7 +64,7 @@ pub fn init_logging(config: &LoggingConfig) -> Result<(), Box<dyn std::error::Er
             .with_target(true)
             .with_thread_ids(true)
             .with_line_number(true);
-        
+
         if config.console_output {
             tracing_subscriber::registry()
                 .with(filter)
@@ -71,7 +72,7 @@ pub fn init_logging(config: &LoggingConfig) -> Result<(), Box<dyn std::error::Er
                 .init();
         }
     }
-    
+
     Ok(())
 }
 
@@ -84,7 +85,9 @@ pub fn init_default_logging() -> Result<(), Box<dyn std::error::Error + Send + S
 
 /// Stub implementation when feature is not enabled
 #[cfg(not(feature = "structured-logging"))]
-pub fn init_logging(config: &LoggingConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub fn init_logging(
+    config: &LoggingConfig,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = config;
     // No-op when feature is disabled
     Ok(())

@@ -1,5 +1,5 @@
-use rememnemosyne_engine::RememnosyneEngine;
 use rememnemosyne_core::MemoryTrigger;
+use rememnemosyne_engine::RememnosyneEngine;
 
 #[tokio::main]
 async fn main() {
@@ -10,29 +10,67 @@ async fn main() {
 
     // Store memories
     let test_memories = vec![
-        ("Rust is a systems programming language focused on safety and performance.", "Rust programming"),
-        ("Vector databases store high-dimensional vectors for semantic search.", "Vector databases"),
-        ("vLLM provides high throughput LLM serving with PagedAttention.", "vLLM deployment"),
-        ("Memory-augmented agents use external stores for context.", "Memory agents"),
-        ("HNSW enables approximate nearest neighbor search.", "HNSW algorithm"),
-        ("Quantization reduces model size while maintaining quality.", "Quantization"),
-        ("Embedding models convert text to numerical vectors.", "Embedding models"),
-        ("Prompt engineering guides LLM behavior.", "Prompt engineering"),
-        ("Mixture of Experts activates only a subset of parameters.", "MoE architecture"),
-        ("Retrieval-Augmented Generation combines retrieval with generation.", "RAG systems"),
+        (
+            "Rust is a systems programming language focused on safety and performance.",
+            "Rust programming",
+        ),
+        (
+            "Vector databases store high-dimensional vectors for semantic search.",
+            "Vector databases",
+        ),
+        (
+            "vLLM provides high throughput LLM serving with PagedAttention.",
+            "vLLM deployment",
+        ),
+        (
+            "Memory-augmented agents use external stores for context.",
+            "Memory agents",
+        ),
+        (
+            "HNSW enables approximate nearest neighbor search.",
+            "HNSW algorithm",
+        ),
+        (
+            "Quantization reduces model size while maintaining quality.",
+            "Quantization",
+        ),
+        (
+            "Embedding models convert text to numerical vectors.",
+            "Embedding models",
+        ),
+        (
+            "Prompt engineering guides LLM behavior.",
+            "Prompt engineering",
+        ),
+        (
+            "Mixture of Experts activates only a subset of parameters.",
+            "MoE architecture",
+        ),
+        (
+            "Retrieval-Augmented Generation combines retrieval with generation.",
+            "RAG systems",
+        ),
     ];
 
     println!("\nStoring {} memories...", test_memories.len());
     for (content, summary) in &test_memories {
-        let _id = engine.remember(*content, *summary, MemoryTrigger::Insight).await
+        let _id = engine
+            .remember(*content, *summary, MemoryTrigger::Insight)
+            .await
             .expect("Failed to store memory");
     }
 
     // Test recall
     let test_queries = vec![
-        ("What programming languages are good for systems programming?", "rust"),
+        (
+            "What programming languages are good for systems programming?",
+            "rust",
+        ),
         ("How can I store embeddings for semantic search?", "vector"),
-        ("What is the best way to deploy LLMs for high throughput?", "vllm"),
+        (
+            "What is the best way to deploy LLMs for high throughput?",
+            "vllm",
+        ),
     ];
 
     println!("\n=== Recall Tests ===");
@@ -51,7 +89,10 @@ async fn main() {
             }
 
             let has_keyword = formatted.to_lowercase().contains(expected_keyword);
-            println!("  Contains expected keyword '{}': {}", expected_keyword, has_keyword);
+            println!(
+                "  Contains expected keyword '{}': {}",
+                expected_keyword, has_keyword
+            );
         }
     }
 

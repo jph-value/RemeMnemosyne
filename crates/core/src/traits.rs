@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
-use crate::types::*;
 use crate::error::Result;
 use crate::query::*;
+use crate::types::*;
 
 /// Core trait that all memory stores must implement
 #[async_trait]
@@ -81,14 +81,13 @@ pub trait GraphMemoryStore: Send + Sync {
     ) -> Result<Vec<(Entity, RelationshipType, f32)>>;
 
     /// Find entities by name or description
-    async fn search_entities(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<Entity>>;
+    async fn search_entities(&self, query: &str, limit: usize) -> Result<Vec<Entity>>;
 
     /// Get the entity graph as adjacency list
-    async fn get_adjacency(&self, entity_id: &EntityId) -> Result<Vec<(EntityId, RelationshipType)>>;
+    async fn get_adjacency(
+        &self,
+        entity_id: &EntityId,
+    ) -> Result<Vec<(EntityId, RelationshipType)>>;
 }
 
 /// Trait for temporal memory operations
@@ -106,10 +105,7 @@ pub trait TemporalMemoryStore: Send + Sync {
     ) -> Result<Vec<MemoryEvent>>;
 
     /// Get events for a memory artifact
-    async fn get_events_for_memory(
-        &self,
-        memory_id: &MemoryId,
-    ) -> Result<Vec<MemoryEvent>>;
+    async fn get_events_for_memory(&self, memory_id: &MemoryId) -> Result<Vec<MemoryEvent>>;
 
     /// Get timeline of events
     async fn get_timeline(
@@ -140,22 +136,14 @@ pub trait CognitiveEngine: Send + Sync {
     ) -> Result<Vec<(MemoryId, f32)>>;
 
     /// Prefetch memories based on query
-    async fn prefetch(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<MemoryId>>;
+    async fn prefetch(&self, query: &str, limit: usize) -> Result<Vec<MemoryId>>;
 }
 
 /// Trait for context building
 #[async_trait]
 pub trait ContextBuilder: Send + Sync {
     /// Build context bundle from query
-    async fn build_context(
-        &self,
-        query: &str,
-        max_tokens: usize,
-    ) -> Result<ContextBundle>;
+    async fn build_context(&self, query: &str, max_tokens: usize) -> Result<ContextBundle>;
 
     /// Prune context to fit token limit
     fn prune_context(&self, bundle: &mut ContextBundle, max_tokens: usize);

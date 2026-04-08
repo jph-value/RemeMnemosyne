@@ -1,12 +1,12 @@
 use dashmap::DashMap;
-use rememnemosyne_core::*;
 use petgraph::graph::{Graph, NodeIndex};
+use rememnemosyne_core::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::entity::{GraphEntity, EntityCluster};
+use crate::entity::{EntityCluster, GraphEntity};
 use crate::relationship::{GraphRelationship, RelationshipPath};
 
 /// Configuration for graph memory store
@@ -64,17 +64,17 @@ impl GraphMemoryStore {
     /// Add an entity to the graph
     pub async fn add_entity(&self, entity: GraphEntity) -> Result<EntityId> {
         let id = entity.id;
-        
+
         // Index by name
         self.index_entity_name(&entity);
-        
+
         // Add to graph
         {
             let mut graph = self.graph.write();
             let node = graph.add_node(id);
             self.node_indices.insert(id, node);
         }
-        
+
         self.entities.insert(id, entity);
         Ok(id)
     }
@@ -87,21 +87,21 @@ impl GraphMemoryStore {
     /// Get entity by name (fuzzy match)
     pub async fn get_entity_by_name(&self, name: &str) -> Option<GraphEntity> {
         let name_lower = name.to_lowercase();
-        
+
         // Exact match first
         if let Some(ids) = self.name_index.get(&name_lower) {
             if let Some(id) = ids.iter().next() {
                 return self.entities.get(id).map(|e| e.clone());
             }
         }
-        
+
         // Fuzzy match
         for entry in self.entities.iter() {
             if entry.matches_name(name) {
                 return Some(entry.clone());
             }
         }
-        
+
         None
     }
 
@@ -113,16 +113,16 @@ impl GraphMemoryStore {
         relationship_type: RelationshipType,
         strength: f32,
     ) -> Result<Uuid> {
-        let relationship = GraphRelationship::new(
-            source_id,
-            target_id,
-            relationship_type,
-            strength,
-        );
+        let relationship =
+            GraphRelationship::new(source_id, target_id, relationship_type, strength);
 
         // Check if relationship already exists
-        let existing_id = self.find_existing_relationship(&source_id, &target_id, &relationship.relationship_type);
-        
+        let existing_id = self.find_existing_relationship(
+            &source_id,
+            &target_id,
+            &relationship.relationship_type,
+        );
+
         if let Some(ex_id) = existing_id {
             // Strengthen existing relationship
             if let Some(mut rel) = self.relationships.get_mut(&ex_id) {
@@ -137,7 +137,7 @@ impl GraphMemoryStore {
         {
             let source_node = self.node_indices.get(&source_id).map(|n| *n);
             let target_node = self.node_indices.get(&target_id).map(|n| *n);
-            
+
             if let (Some(s_node), Some(t_node)) = (source_node, target_node) {
                 let mut graph = self.graph.write();
                 graph.add_edge(s_node, t_node, rel_id);
@@ -159,7 +159,9 @@ impl GraphMemoryStore {
         entity_id: &EntityId,
         max_depth: usize,
     ) -> Result<Vec<(GraphEntity, RelationshipType, f32)>> {
-        let start_node = self.node_indices.get(entity_id)
+        let start_node = self
+            .node_indices
+            .get(entity_id)
             .ok_or_else(|| MemoryError::NotFound("Entity not found".into()))?;
 
         let graph = self.graph.read();
@@ -225,7 +227,8 @@ impl GraphMemoryStore {
 
         let graph = self.graph.read();
         let mut visited = std::collections::HashSet::new();
-        let mut parent: std::collections::HashMap<NodeIndex, NodeIndex> = std::collections::HashMap::new();
+        let mut parent: std::collections::HashMap<NodeIndex, NodeIndex> =
+            std::collections::HashMap::new();
         let mut queue = std::collections::VecDeque::new();
 
         queue.push_back(source_node);
@@ -236,7 +239,7 @@ impl GraphMemoryStore {
                 // Reconstruct path
                 let mut entities = Vec::new();
                 let mut current = target_node;
-                
+
                 while let Some(id) = graph.node_weight(current) {
                     entities.push(*id);
                     if current == source_node {
@@ -247,7 +250,7 @@ impl GraphMemoryStore {
                         None => break,
                     };
                 }
-                
+
                 entities.reverse();
                 return Some(RelationshipPath::new(entities, vec![]));
             }
@@ -265,19 +268,18 @@ impl GraphMemoryStore {
     }
 
     /// Search entities by name or description
-    pub async fn search_entities(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Vec<GraphEntity> {
+    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<GraphEntity> {
         let query_lower = query.to_lowercase();
-        
-        let mut results: Vec<GraphEntity> = self.entities
+
+        let mut results: Vec<GraphEntity> = self
+            .entities
             .iter()
             .filter(|e| {
                 e.name.to_lowercase().contains(&query_lower)
                     || e.description.to_lowercase().contains(&query_lower)
-                    || e.aliases.iter().any(|a| a.to_lowercase().contains(&query_lower))
+                    || e.aliases
+                        .iter()
+                        .any(|a| a.to_lowercase().contains(&query_lower))
             })
             .map(|e| e.clone())
             .collect();
@@ -286,7 +288,9 @@ impl GraphMemoryStore {
         results.sort_by(|a, b| {
             let score_a = a.importance_score + (a.mention_count as f32).log10() * 0.1;
             let score_b = b.importance_score + (b.mention_count as f32).log10() * 0.1;
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         results.truncate(limit);
@@ -297,16 +301,15 @@ impl GraphMemoryStore {
     pub async fn get_entities_by_type(&self, entity_type: &EntityType) -> Vec<GraphEntity> {
         self.entities
             .iter()
-            .filter(|e| std::mem::discriminant(&e.entity_type) == std::mem::discriminant(entity_type))
+            .filter(|e| {
+                std::mem::discriminant(&e.entity_type) == std::mem::discriminant(entity_type)
+            })
             .map(|e| e.clone())
             .collect()
     }
 
     /// Get entity adjacency list
-    pub async fn get_adjacency(
-        &self,
-        entity_id: &EntityId,
-    ) -> Vec<(EntityId, RelationshipType)> {
+    pub async fn get_adjacency(&self, entity_id: &EntityId) -> Vec<(EntityId, RelationshipType)> {
         let node = match self.node_indices.get(entity_id) {
             Some(n) => *n,
             None => return Vec::new(),
@@ -361,17 +364,12 @@ impl GraphMemoryStore {
             if cluster_entities.len() > 1 {
                 // Compute centroid
                 let centroid = self.compute_cluster_centroid(&cluster_entities);
-                let mut cluster = EntityCluster::new(
-                    entity.name.clone(),
-                    cluster_entities,
-                    centroid,
-                );
+                let mut cluster =
+                    EntityCluster::new(entity.name.clone(), cluster_entities, centroid);
 
                 // Compute coherence
-                let entity_map: HashMap<EntityId, GraphEntity> = self.entities
-                    .iter()
-                    .map(|e| (e.id, e.clone()))
-                    .collect();
+                let entity_map: HashMap<EntityId, GraphEntity> =
+                    self.entities.iter().map(|e| (e.id, e.clone())).collect();
                 cluster.compute_coherence(&entity_map);
 
                 self.clusters.insert(cluster.id, cluster.clone());
@@ -415,14 +413,14 @@ impl GraphMemoryStore {
         let name_lower = entity.name.to_lowercase();
         self.name_index
             .entry(name_lower)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(entity.id);
 
         for alias in &entity.aliases {
             let alias_lower = alias.to_lowercase();
             self.name_index
                 .entry(alias_lower)
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .insert(entity.id);
         }
     }
@@ -437,7 +435,8 @@ impl GraphMemoryStore {
             let rel = entry.value();
             if rel.source == *source
                 && rel.target == *target
-                && std::mem::discriminant(&rel.relationship_type) == std::mem::discriminant(rel_type)
+                && std::mem::discriminant(&rel.relationship_type)
+                    == std::mem::discriminant(rel_type)
             {
                 return Some(*entry.key());
             }
@@ -483,7 +482,8 @@ impl GraphMemoryStore {
             return Vec::new();
         }
 
-        let first_dim = self.entities
+        let first_dim = self
+            .entities
             .get(&entity_ids[0])
             .map(|e| e.embedding.len())
             .unwrap_or(0);

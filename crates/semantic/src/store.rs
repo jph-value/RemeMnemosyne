@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::turboquant::{TurboQuantizer, TurboQuantConfig, QuantizedCode};
-use crate::index::{HNSWIndex, FlatIndex};
+use crate::index::{FlatIndex, HNSWIndex};
+use crate::turboquant::{QuantizedCode, TurboQuantConfig, TurboQuantizer};
 
 /// Configuration for semantic memory store
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,10 +111,11 @@ impl SemanticMemoryStore {
         threshold: f32,
     ) -> Result<Vec<(MemoryArtifact, f32)>> {
         if query_vector.len() != self.config.dimensions {
-            return Err(MemoryError::Index(
-                format!("Query dimension {} != index dimension {}",
-                        query_vector.len(), self.config.dimensions)
-            ));
+            return Err(MemoryError::Index(format!(
+                "Query dimension {} != index dimension {}",
+                query_vector.len(),
+                self.config.dimensions
+            )));
         }
 
         // Check if we should use flat or HNSW index for search
@@ -346,17 +347,17 @@ impl MemoryStore for SemanticMemoryStore {
         self.memories.clear();
         self.quantized_codes.clear();
         self.id_to_index.clear();
-        
+
         let mut hnsw = self.hnsw_index.write().await;
         *hnsw = HNSWIndex::new(
             self.config.dimensions,
             self.config.hnsw_m,
             self.config.hnsw_ef_construction,
         );
-        
+
         let mut flat = self.flat_index.write().await;
         *flat = FlatIndex::new(self.config.dimensions);
-        
+
         Ok(())
     }
 

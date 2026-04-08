@@ -60,7 +60,7 @@ use rememnemosyne_core::Result;
 pub fn create_default_storage(path: &str) -> Result<Box<dyn StorageBackend>> {
     #[cfg(feature = "sled-storage")]
     {
-        return Ok(Box::new(SledStorage::new(path)?));
+        Ok(Box::new(SledStorage::new(path)?))
     }
 
     #[cfg(not(feature = "sled-storage"))]

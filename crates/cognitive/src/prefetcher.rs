@@ -58,7 +58,7 @@ impl MemoryPrefetcher {
         for tag in tags {
             self.memory_clusters
                 .entry(tag.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id);
         }
     }

@@ -1,5 +1,5 @@
-use rememnemosyne_core::EntityId;
 use petgraph::graph::{Graph, NodeIndex};
+use rememnemosyne_core::EntityId;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::entity::GraphEntity;
@@ -356,6 +356,12 @@ pub struct PathAnalysisResult {
     pub relationship_types: Vec<rememnemosyne_core::RelationshipType>,
     pub avg_strength: f32,
     pub complexity: f32,
+}
+
+impl Default for PathAnalysisResult {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PathAnalysisResult {

@@ -245,11 +245,10 @@ impl TimelineManager {
         entity_id: &EntityId,
         event: TemporalEvent,
     ) -> Result<(), String> {
-        let timeline_id = self
+        let timeline_id = *self
             .entity_timelines
             .get(entity_id)
-            .ok_or_else(|| "No timeline for entity".to_string())?
-            .clone();
+            .ok_or_else(|| "No timeline for entity".to_string())?;
 
         if let Some(timeline) = self.timelines.get_mut(&timeline_id) {
             timeline.add_event(event);

@@ -137,7 +137,10 @@ impl ContextBuilderEngine {
             let entity = self.graph_entity_to_entity(graph_entity);
             bundle.entities.push(entity);
         }
-        let remaining_entity_slots = self.config.max_entities.saturating_sub(bundle.entities.len());
+        let remaining_entity_slots = self
+            .config
+            .max_entities
+            .saturating_sub(bundle.entities.len());
         for graph_entity in extra_entities.into_iter().take(remaining_entity_slots) {
             let entity = self.graph_entity_to_entity(&graph_entity);
             bundle.entities.push(entity);
@@ -337,10 +340,7 @@ impl ContextBuilderEngine {
         // Group by memory type
         let mut by_type: HashMap<MemoryType, Vec<&crate::router::MemoryResult>> = HashMap::new();
         for result in results {
-            by_type
-                .entry(result.source)
-                .or_insert_with(Vec::new)
-                .push(result);
+            by_type.entry(result.source).or_default().push(result);
         }
 
         for (mem_type, memories) in by_type {

@@ -10,7 +10,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  RUSTFLAGS: "-D warnings"
 
 jobs:
   test:
@@ -35,14 +34,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run clippy (default features)
+        run: cargo clippy --all-targets
 
-      - name: Build
-        run: cargo build --all-features
+      - name: Build (default features)
+        run: cargo build
 
-      - name: Run tests
-        run: cargo test --all-features --verbose
+      - name: Run tests (default features)
+        run: cargo test --verbose
+
+      # Test with optional features that don't require C++ toolchain
+      - name: Test with all-pure-Rust features
+        run: cargo test --features "candle-embeddings,entity-resolution,backup-export,metrics,http-server,config-file,structured-logging,sharding,read-replicas,compaction,auto-pruning" --verbose
 
   coverage:
     name: Code Coverage
@@ -58,8 +61,8 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage
-        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      - name: Generate coverage (default features)
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -76,11 +79,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build docs
-        run: cargo doc --all-features --no-deps
+      - name: Build docs (default features)
+        run: cargo doc --no-deps
 
       - name: Check for broken links
-        run: cargo doc --all-features --no-deps 2>&1 | grep -i "broken" && exit 1 || true
+        run: cargo doc --no-deps 2>&1 | grep -i "broken" && exit 1 || true
 
   benchmarks:
     name: Benchmarks

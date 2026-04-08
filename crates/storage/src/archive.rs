@@ -15,9 +15,9 @@
 /// The catalog stores metadata without decompression so you can search/filter
 /// archived memories without touching the compressed data.
 use chrono::{DateTime, Utc};
-use rememnemosyne_core::{Importance, MemoryArtifact, MemoryId, MemoryType};
 #[cfg(test)]
 use rememnemosyne_core::MemoryTrigger;
+use rememnemosyne_core::{Importance, MemoryArtifact, MemoryId, MemoryType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -205,7 +205,7 @@ impl MemoryArchive {
             compressed_bytes += compressed.len() as u64;
 
             // Current file offset = current length before we write
-            let offset = data_file.seek(SeekFrom::Current(0))?;
+            let offset = data_file.stream_position()?;
 
             let len_bytes = (compressed.len() as u32).to_le_bytes();
             data_file.write_all(&len_bytes)?;
@@ -393,7 +393,7 @@ impl MemoryArchive {
         let mut new_offsets: Vec<(MemoryId, u64)> = Vec::new();
         let mut new_offset = 0u64;
 
-        for (_i, (id, old_offset, compressed_size)) in active_entries.iter().enumerate() {
+        for (id, old_offset, compressed_size) in active_entries.iter() {
             // Read from old file
             let mut data_file = BufReader::new(fs::File::open(&self.data_path)?);
             data_file.seek(SeekFrom::Start(*old_offset))?;

@@ -1,14 +1,14 @@
 pub mod entity;
+pub mod entity_resolution;
 pub mod relationship;
 pub mod store;
 pub mod traversal;
-pub mod entity_resolution;
 
 pub use entity::*;
+pub use entity_resolution::*;
 pub use relationship::*;
 pub use store::*;
 pub use traversal::*;
-pub use entity_resolution::*;
 
 #[cfg(test)]
 mod tests {
@@ -32,7 +32,7 @@ mod tests {
         let e1 = GraphEntity::new("A", EntityType::Concept, "", vec![1.0, 0.0]);
         let e2 = GraphEntity::new("B", EntityType::Concept, "", vec![1.0, 0.0]);
         let e3 = GraphEntity::new("C", EntityType::Concept, "", vec![0.0, 1.0]);
-        
+
         assert_eq!(e1.similarity(&e2), 1.0);
         assert_eq!(e1.similarity(&e3), 0.0);
     }
@@ -41,7 +41,7 @@ mod tests {
     fn test_graph_relationship_creation() {
         let source = uuid::Uuid::new_v4();
         let target = uuid::Uuid::new_v4();
-        
+
         let rel = Relationship::new(source, target, RelationshipType::Uses, 0.8);
         assert_eq!(rel.strength, 0.8);
     }
@@ -50,10 +50,10 @@ mod tests {
     fn test_graph_relationship_strengthen() {
         let source = uuid::Uuid::new_v4();
         let target = uuid::Uuid::new_v4();
-        
+
         let mut rel = GraphRelationship::new(source, target, RelationshipType::Uses, 0.5);
         rel.strengthen(0.3);
-        
+
         assert!((rel.strength - 0.8).abs() < 0.001);
     }
 
@@ -61,7 +61,7 @@ mod tests {
     fn test_relationship_path() {
         let entities = vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()];
         let path = RelationshipPath::new(entities, vec![]);
-        
+
         assert_eq!(path.hop_count, 0);
     }
 }

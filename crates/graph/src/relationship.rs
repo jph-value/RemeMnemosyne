@@ -31,45 +31,45 @@ impl ValidityWindow {
             invalidated_by: None,
         }
     }
-    
+
     /// Create with default (now, no expiration)
     pub fn indefinite() -> Self {
         Self::new(Utc::now(), None)
     }
-    
+
     /// Create with specific expiration
     pub fn expires_at(expiration: DateTime<Utc>) -> Self {
         Self::new(Utc::now(), Some(expiration))
     }
-    
+
     /// Create with duration from now
     pub fn expires_in(duration: chrono::Duration) -> Self {
         Self::new(Utc::now(), Some(Utc::now() + duration))
     }
-    
+
     /// Check if currently valid
     pub fn is_valid(&self) -> bool {
         if self.invalidated {
             return false;
         }
-        
+
         let now = Utc::now();
-        
+
         // Check valid_from
         if now < self.valid_from {
             return false;
         }
-        
+
         // Check valid_until
         if let Some(until) = self.valid_until {
             if now > until {
                 return false;
             }
         }
-        
+
         true
     }
-    
+
     /// Check if expired (but not necessarily invalidated)
     pub fn is_expired(&self) -> bool {
         if let Some(until) = self.valid_until {
@@ -78,30 +78,26 @@ impl ValidityWindow {
             false
         }
     }
-    
+
     /// Invalidate this relationship
     pub fn invalidate(&mut self, reason: impl Into<String>, by: impl Into<String>) {
         self.invalidated = true;
         self.invalidation_reason = Some(reason.into());
         self.invalidated_by = Some(by.into());
     }
-    
+
     /// Reactivate this relationship
     pub fn reactivate(&mut self) {
         self.invalidated = false;
         self.invalidation_reason = None;
         self.invalidated_by = None;
     }
-    
+
     /// Get remaining validity time (if expiring)
     pub fn time_remaining(&self) -> Option<chrono::Duration> {
-        if let Some(until) = self.valid_until {
-            Some(until - Utc::now())
-        } else {
-            None // Indefinite
-        }
+        self.valid_until.map(|until| until - Utc::now())
     }
-    
+
     /// Get days until expiration
     pub fn days_until_expiration(&self) -> Option<i64> {
         self.time_remaining().map(|d| d.num_days())
@@ -186,51 +182,51 @@ impl GraphRelationship {
             RelationshipType::Related | RelationshipType::Contains | RelationshipType::PartOf
         )
     }
-    
+
     // ========================================================================
     // Temporal Validity Methods
     // ========================================================================
-    
+
     /// Set validity window with expiration
     pub fn with_expiration(mut self, duration: chrono::Duration) -> Self {
         self.validity = ValidityWindow::expires_in(duration);
         self
     }
-    
+
     /// Set specific expiration time
     pub fn with_expiration_at(mut self, expiration: DateTime<Utc>) -> Self {
         self.validity = ValidityWindow::expires_at(expiration);
         self
     }
-    
+
     /// Set indefinite validity (no expiration)
     pub fn with_indefinite_validity(mut self) -> Self {
         self.validity = ValidityWindow::indefinite();
         self
     }
-    
+
     /// Check if this relationship is currently valid
     pub fn is_valid(&self) -> bool {
         self.validity.is_valid()
     }
-    
+
     /// Check if this relationship has expired
     pub fn is_expired(&self) -> bool {
         self.validity.is_expired()
     }
-    
+
     /// Invalidate this relationship
     pub fn invalidate(&mut self, reason: impl Into<String>, by: impl Into<String>) {
         self.validity.invalidate(reason, by);
         self.last_updated = Utc::now();
     }
-    
+
     /// Reactivate this relationship
     pub fn reactivate(&mut self) {
         self.validity.reactivate();
         self.last_updated = Utc::now();
     }
-    
+
     /// Get days until expiration
     pub fn days_until_expiration(&self) -> Option<i64> {
         self.validity.days_until_expiration()
@@ -306,7 +302,7 @@ impl RelationshipPath {
             .map(|id| {
                 entity_names
                     .get(id)
-                    .map(|s| s.clone())
+                    .cloned()
                     .unwrap_or_else(|| "unknown".to_string())
             })
             .collect();

@@ -197,15 +197,14 @@ impl EpisodeSummarizer {
                     .next()
                     .map(|c| c.is_uppercase())
                     .unwrap_or(false)
+                && seen.insert(clean.to_string())
             {
-                if seen.insert(clean.to_string()) {
-                    entities.push(EntityRef {
-                        id: uuid::Uuid::new_v4(),
-                        name: clean.to_string(),
-                        entity_type: EntityType::Concept,
-                        relevance: 0.5,
-                    });
-                }
+                entities.push(EntityRef {
+                    id: uuid::Uuid::new_v4(),
+                    name: clean.to_string(),
+                    entity_type: EntityType::Concept,
+                    relevance: 0.5,
+                });
             }
         }
 

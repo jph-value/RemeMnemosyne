@@ -1,10 +1,10 @@
-use rememnemosyne_core::*;
-use rememnemosyne_semantic::SemanticMemoryStore;
-use rememnemosyne_episodic::EpisodicMemoryStore;
-use rememnemosyne_graph::{GraphMemoryStore, entity::GraphEntity};
-use rememnemosyne_temporal::{TemporalMemoryStore, TemporalEvent};
-use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher};
 use crate::providers::{EmbeddingProviderRouter, EmbeddingRequest};
+use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher};
+use rememnemosyne_core::*;
+use rememnemosyne_episodic::EpisodicMemoryStore;
+use rememnemosyne_graph::{entity::GraphEntity, GraphMemoryStore};
+use rememnemosyne_semantic::SemanticMemoryStore;
+use rememnemosyne_temporal::{TemporalEvent, TemporalMemoryStore};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -34,7 +34,7 @@ impl Default for MemoryRouterConfig {
 }
 
 /// Memory router - coordinates queries across all memory stores
-/// 
+///
 /// Uses the EmbeddingProviderRouter for generating embeddings,
 /// supporting pluggable embedding providers (OpenAI, Voyage, Cohere,
 /// Ollama, Candle/local, or hash fallback).
@@ -72,8 +72,12 @@ impl MemoryRouter {
             episodic,
             graph,
             temporal,
-            predictor: Arc::new(parking_lot::RwLock::new(ContextPredictor::new(Default::default()))),
-            prefetcher: Arc::new(parking_lot::RwLock::new(MemoryPrefetcher::new(Default::default()))),
+            predictor: Arc::new(parking_lot::RwLock::new(ContextPredictor::new(
+                Default::default(),
+            ))),
+            prefetcher: Arc::new(parking_lot::RwLock::new(MemoryPrefetcher::new(
+                Default::default(),
+            ))),
             embedder: Arc::new(parking_lot::RwLock::new(embedder)),
         }
     }
@@ -113,7 +117,10 @@ impl MemoryRouter {
 
         // Query semantic memory (uses HNSW via enriched embedding)
         if let Ok(semantic_results) = self.semantic.query(&enriched_query).await {
-            for memory in semantic_results.into_iter().take(self.config.max_results_per_store) {
+            for memory in semantic_results
+                .into_iter()
+                .take(self.config.max_results_per_store)
+            {
                 let relevance = memory.compute_relevance();
                 response.add_result(memory, MemoryType::Semantic, relevance);
             }
@@ -121,7 +128,10 @@ impl MemoryRouter {
 
         // Query episodic memory
         if let Ok(episodic_results) = self.episodic.query(&enriched_query).await {
-            for memory in episodic_results.into_iter().take(self.config.max_results_per_store) {
+            for memory in episodic_results
+                .into_iter()
+                .take(self.config.max_results_per_store)
+            {
                 let relevance = memory.compute_relevance();
                 response.add_result(memory, MemoryType::Episodic, relevance);
             }
@@ -129,7 +139,10 @@ impl MemoryRouter {
 
         // Query graph memory for relevant entities
         if let Some(ref text) = enriched_query.text {
-            let entities = self.graph.search_entities(text, self.config.max_results_per_store).await;
+            let entities = self
+                .graph
+                .search_entities(text, self.config.max_results_per_store)
+                .await;
             for entity in entities {
                 response.entities.push(entity);
             }
@@ -137,7 +150,10 @@ impl MemoryRouter {
 
         // Query temporal memory for relevant timeline events
         if let Some(ref text) = enriched_query.text {
-            let events = self.temporal.search_events(text, self.config.max_results_per_store).await;
+            let events = self
+                .temporal
+                .search_events(text, self.config.max_results_per_store)
+                .await;
             for event in events {
                 response.temporal_events.push(event);
             }
@@ -172,11 +188,7 @@ impl MemoryRouter {
         // Update prefetcher with new memory
         if !artifact.embedding.is_empty() {
             let mut prefetcher = self.prefetcher.write();
-            prefetcher.register_memory(
-                id,
-                artifact.embedding.clone(),
-                &artifact.tags,
-            );
+            prefetcher.register_memory(id, artifact.embedding.clone(), &artifact.tags);
         }
 
         Ok(id)
@@ -198,7 +210,11 @@ impl MemoryRouter {
     }
 
     /// Search entities by name
-    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
+    pub async fn search_entities(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
         self.graph.search_entities(query, limit).await
     }
 
@@ -207,7 +223,13 @@ impl MemoryRouter {
         &self,
         entity_id: &EntityId,
         max_depth: usize,
-    ) -> Result<Vec<(rememnemosyne_graph::entity::GraphEntity, RelationshipType, f32)>> {
+    ) -> Result<
+        Vec<(
+            rememnemosyne_graph::entity::GraphEntity,
+            RelationshipType,
+            f32,
+        )>,
+    > {
         self.graph.find_related(entity_id, max_depth).await
     }
 
@@ -304,7 +326,9 @@ impl MemoryResponse {
 
     pub fn sort_by_relevance(&mut self) {
         self.results.sort_by(|a, b| {
-            b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal)
+            b.relevance
+                .partial_cmp(&a.relevance)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
 

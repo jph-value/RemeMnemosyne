@@ -1,8 +1,7 @@
 /// Configuration file parsing (TOML/YAML)
-/// 
+///
 /// This module provides configuration file loading and parsing for TOML and YAML files.
 /// Enabled with the `config-file` feature flag.
-
 use rememnemosyne_core::MemoryError;
 use rememnemosyne_core::Result;
 use serde::{Deserialize, Serialize};
@@ -14,34 +13,34 @@ use crate::RememnosyneConfig;
 #[cfg(feature = "config-file")]
 pub mod config_loader {
     use super::*;
-    
+
     /// Load configuration from a TOML file
     pub async fn load_from_toml(path: &Path) -> Result<RememnosyneConfig> {
-        let content = tokio::fs::read_to_string(path).await.map_err(|e| {
-            MemoryError::Io(e)
-        })?;
-        
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| MemoryError::Io(e))?;
+
         let config: RememnosyneConfig = toml::from_str(&content).map_err(|e| {
             MemoryError::Serialization(format!("Failed to parse TOML config: {}", e))
         })?;
-        
+
         tracing::info!(path = ?path, "Configuration loaded from TOML file");
-        
+
         Ok(config)
     }
-    
+
     /// Save configuration to a TOML file
     pub async fn save_to_toml(config: &RememnosyneConfig, path: &Path) -> Result<()> {
         let content = toml::to_string_pretty(config).map_err(|e| {
             MemoryError::Serialization(format!("Failed to serialize config to TOML: {}", e))
         })?;
-        
-        tokio::fs::write(path, content).await.map_err(|e| {
-            MemoryError::Io(e)
-        })?;
-        
+
+        tokio::fs::write(path, content)
+            .await
+            .map_err(|e| MemoryError::Io(e))?;
+
         tracing::info!(path = ?path, "Configuration saved to TOML file");
-        
+
         Ok(())
     }
 }
@@ -84,13 +83,13 @@ impl ConfigTemplate {
 #[cfg(not(feature = "config-file"))]
 pub mod config_loader {
     use super::*;
-    
+
     pub async fn load_from_toml(_path: &Path) -> Result<RememnosyneConfig> {
         Err(MemoryError::Serialization(
             "Config file feature not enabled. Enable with --features config-file".to_string(),
         ))
     }
-    
+
     pub async fn save_to_toml(_config: &RememnosyneConfig, _path: &Path) -> Result<()> {
         Err(MemoryError::Serialization(
             "Config file feature not enabled. Enable with --features config-file".to_string(),

@@ -1,16 +1,4 @@
-/// Candle-based real ML embeddings for production use
-///
-/// This module provides real sentence embeddings using transformer models
-/// via the Candle ML framework. It implements the EmbeddingProvider trait
-/// from rememnemosyne-core for pluggable embedding support.
-///
-/// Enable with the `candle-embeddings` feature flag.
-
-use async_trait::async_trait;
-use rememnemosyne_core::{
-    EmbeddingProvider, EmbeddingProviderType, EmbeddingRequest, EmbeddingResponse,
-    MemoryError, Result,
-};
+use rememnemosyne_core::{MemoryError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -93,10 +81,9 @@ impl CandleEmbedder {
             local_path.clone()
         } else {
             // Download from HuggingFace
-            let api = Api::new().map_err(|e| MemoryError::Cognitive(format!(
-                "Failed to initialize HuggingFace API: {}",
-                e
-            )))?;
+            let api = Api::new().map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to initialize HuggingFace API: {}", e))
+            })?;
 
             let repo = Repo::with_revision(
                 format!("sentence-transformers/{}", self.config.model_name),
@@ -104,11 +91,10 @@ impl CandleEmbedder {
                 "main".to_string(),
             );
 
-            let model_file = api
-                .repo(repo)
-                .get("model.onnx")
-                .await
-                .map_err(|e| MemoryError::Cognitive(format!("Failed to download model: {}", e)))?;
+            let model_file =
+                api.repo(repo).get("model.onnx").await.map_err(|e| {
+                    MemoryError::Cognitive(format!("Failed to download model: {}", e))
+                })?;
 
             model_file
         };
@@ -117,10 +103,9 @@ impl CandleEmbedder {
         let tokenizer_path = if let Some(local_path) = &self.config.local_model_path {
             local_path.join("tokenizer.json")
         } else {
-            let api = Api::new().map_err(|e| MemoryError::Cognitive(format!(
-                "Failed to initialize HuggingFace API: {}",
-                e
-            )))?;
+            let api = Api::new().map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to initialize HuggingFace API: {}", e))
+            })?;
 
             let repo = Repo::with_revision(
                 format!("sentence-transformers/{}", self.config.model_name),
@@ -128,20 +113,17 @@ impl CandleEmbedder {
                 "main".to_string(),
             );
 
-            api
-                .repo(repo)
-                .get("tokenizer.json")
-                .await
-                .map_err(|e| MemoryError::Cognitive(format!("Failed to download tokenizer: {}", e)))?
+            api.repo(repo).get("tokenizer.json").await.map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to download tokenizer: {}", e))
+            })?
         };
 
-        let tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|e| MemoryError::Cognitive(format!(
-            "Failed to load tokenizer: {}",
-            e
-        )))?;
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to load tokenizer: {}", e)))?;
 
         *self.tokenizer.write() = Some(tokenizer);
-        self.model_loaded.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.model_loaded
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         tracing::info!(
             model = %self.config.model_name,
@@ -170,14 +152,14 @@ impl CandleEmbedder {
         }
 
         let tokenizer = self.tokenizer.read();
-        let tokenizer = tokenizer.as_ref().ok_or_else(|| {
-            MemoryError::Cognitive("Tokenizer not initialized".to_string())
-        })?;
+        let tokenizer = tokenizer
+            .as_ref()
+            .ok_or_else(|| MemoryError::Cognitive("Tokenizer not initialized".to_string()))?;
 
         // Tokenize
-        let encoding = tokenizer.encode(text, true).map_err(|e| {
-            MemoryError::Cognitive(format!("Tokenization failed: {}", e))
-        })?;
+        let encoding = tokenizer
+            .encode(text, true)
+            .map_err(|e| MemoryError::Cognitive(format!("Tokenization failed: {}", e)))?;
 
         // For now, use a simplified approach
         // In a full implementation, you'd run the ONNX model through Candle
@@ -203,17 +185,17 @@ impl CandleEmbedder {
         // 2. Create tensors from encoding
         // 3. Run forward pass
         // 4. Extract embeddings
-        
+
         // For now, return a simplified embedding based on token IDs
         let token_ids = encoding.get_ids();
         let mut embedding = vec![0.0f32; self.config.dimensions];
-        
+
         // Simple hash-based fallback for demonstration
         for (i, &token_id) in token_ids.iter().enumerate() {
             let idx = (token_id as usize) % self.config.dimensions;
             embedding[idx] += (token_id as f32).sin();
         }
-        
+
         if self.config.normalize {
             let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
             if norm > 1e-10 {
@@ -222,7 +204,7 @@ impl CandleEmbedder {
                 }
             }
         }
-        
+
         Ok(embedding)
     }
 

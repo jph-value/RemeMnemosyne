@@ -6,9 +6,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::artifact::{Episode, Exchange, EpisodicArtifact, EpisodicArtifactType, ConversationContext};
+use crate::artifact::{
+    ConversationContext, Episode, EpisodicArtifact, EpisodicArtifactType, Exchange,
+};
 use crate::session::SessionManager;
-use crate::summarizer::{EpisodeSummarizer, SummarizerConfig, EpisodeSummary};
+use crate::summarizer::{EpisodeSummarizer, EpisodeSummary, SummarizerConfig};
 
 /// Configuration for episodic memory store
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +35,7 @@ impl Default for EpisodicMemoryConfig {
 }
 
 /// Episodic memory store - inspired by mempalace
-/// 
+///
 /// Stores conversation episodes, exchanges, decisions, and summaries
 /// for rich contextual recall.
 pub struct EpisodicMemoryStore {
@@ -80,7 +82,8 @@ impl EpisodicMemoryStore {
         title: impl Into<String>,
     ) -> Result<Uuid> {
         let mut manager = self.session_manager.write().await;
-        let session = manager.get_session_mut(&session_id)
+        let session = manager
+            .get_session_mut(&session_id)
             .ok_or_else(|| MemoryError::NotFound("Session not found".into()))?;
 
         let episode = Episode::new(session_id, title);
@@ -91,30 +94,29 @@ impl EpisodicMemoryStore {
     }
 
     /// Add an exchange to an episode
-    pub async fn add_exchange(
-        &self,
-        episode_id: Uuid,
-        exchange: Exchange,
-    ) -> Result<()> {
+    pub async fn add_exchange(&self, episode_id: Uuid, exchange: Exchange) -> Result<()> {
         // Add to episode
-        let mut episode = self.episodes.get_mut(&episode_id)
+        let mut episode = self
+            .episodes
+            .get_mut(&episode_id)
             .ok_or_else(|| MemoryError::NotFound("Episode not found".into()))?;
-        
+
         episode.add_exchange(exchange.clone());
 
         // Update exchange history
         self.exchange_history
             .entry(episode_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(exchange);
 
         // Auto-summarize if enabled and threshold reached
         if self.config.auto_summarize {
-            let exchange_count = self.exchange_history
+            let exchange_count = self
+                .exchange_history
                 .get(&episode_id)
                 .map(|h| h.len())
                 .unwrap_or(0);
-            
+
             if exchange_count >= self.config.max_exchanges_per_episode {
                 self.summarize_episode(episode_id).await?;
             }
@@ -129,21 +131,25 @@ impl EpisodicMemoryStore {
         episode_id: Uuid,
         decision: crate::artifact::Decision,
     ) -> Result<()> {
-        let mut episode = self.episodes.get_mut(&episode_id)
+        let mut episode = self
+            .episodes
+            .get_mut(&episode_id)
             .ok_or_else(|| MemoryError::NotFound("Episode not found".into()))?;
-        
+
         episode.add_decision(decision);
         Ok(())
     }
 
     /// Summarize an episode
     pub async fn summarize_episode(&self, episode_id: Uuid) -> Result<EpisodeSummary> {
-        let episode = self.episodes.get(&episode_id)
+        let episode = self
+            .episodes
+            .get(&episode_id)
             .ok_or_else(|| MemoryError::NotFound("Episode not found".into()))?;
-        
+
         let summary = self.summarizer.summarize_episode(&episode)?;
         self.summaries.insert(episode_id, summary.clone());
-        
+
         Ok(summary)
     }
 
@@ -183,13 +189,15 @@ impl EpisodicMemoryStore {
     /// Search episodes by topic or content
     pub async fn search_episodes(&self, query: &str) -> Vec<Episode> {
         let query_lower = query.to_lowercase();
-        
+
         self.episodes
             .iter()
             .filter(|e| {
                 e.title.to_lowercase().contains(&query_lower)
                     || e.summary.to_lowercase().contains(&query_lower)
-                    || e.topics.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                    || e.topics
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .map(|e| e.clone())
             .collect()
@@ -197,11 +205,8 @@ impl EpisodicMemoryStore {
 
     /// Get recent episodes
     pub async fn get_recent_episodes(&self, limit: usize) -> Vec<Episode> {
-        let mut episodes: Vec<Episode> = self.episodes
-            .iter()
-            .map(|e| e.clone())
-            .collect();
-        
+        let mut episodes: Vec<Episode> = self.episodes.iter().map(|e| e.clone()).collect();
+
         episodes.sort_by(|a, b| b.end_time.cmp(&a.end_time));
         episodes.truncate(limit);
         episodes
@@ -234,11 +239,12 @@ impl EpisodicMemoryStore {
     /// Archive old episodes
     pub async fn archive_old_episodes(&self, days_old: i64) -> Result<usize> {
         use chrono::Duration;
-        
+
         let cutoff = chrono::Utc::now() - Duration::days(days_old);
         let mut archived = 0;
 
-        let to_archive: Vec<Uuid> = self.episodes
+        let to_archive: Vec<Uuid> = self
+            .episodes
             .iter()
             .filter(|e| e.end_time < cutoff)
             .map(|e| *e.key())
@@ -286,13 +292,14 @@ impl MemoryStore for EpisodicMemoryStore {
                 episodic.content.clone(),
                 episodic.embedding.clone(),
                 MemoryTrigger::UserInput,
-            ).with_importance(match episodic.importance {
+            )
+            .with_importance(match episodic.importance {
                 x if x >= 0.75 => Importance::Critical,
                 x if x >= 0.5 => Importance::High,
                 x if x >= 0.25 => Importance::Medium,
                 _ => Importance::Low,
             });
-            
+
             Ok(Some(artifact))
         } else {
             Ok(None)

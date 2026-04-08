@@ -1,18 +1,17 @@
 /// Typed Intelligence Memory
-/// 
+///
 /// This module provides specialized memory types for intelligence analysis,
 /// going beyond generic notes to support structured intelligence memory.
-/// 
+///
 /// Memory types:
 /// - EventMemory - Discrete events with temporal/spatial context
 /// - NarrativeMemory - Connected storylines and evolving narratives  
 /// - RiskNodeMemory - Risk entities with threat assessments
 /// - EvidenceMemory - Evidence with source attribution
 /// - SimulationMemory - Scenario simulations and projections
-/// 
+///
 /// This enables RISC-OSINT and other intelligence platforms to use
 /// Mnemosyne as a proper intelligence memory system.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -69,37 +68,37 @@ impl TypedMemoryBase {
             tags: Vec::new(),
         }
     }
-    
+
     /// Mark this memory as accessed
     pub fn mark_accessed(&mut self) {
         self.last_accessed = Some(Utc::now());
         self.access_count += 1;
     }
-    
+
     /// Add entity link
     pub fn with_entity_link(mut self, entity_id: EntityId) -> Self {
         self.entity_links.push(entity_id);
         self
     }
-    
+
     /// Set confidence
     pub fn with_confidence(mut self, confidence: f32) -> Self {
         self.confidence = confidence.clamp(0.0, 1.0);
         self
     }
-    
+
     /// Set source
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self
     }
-    
+
     /// Add tag
     pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
         self.tags.push(tag.into());
         self
     }
-    
+
     /// Add metadata
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
@@ -164,7 +163,7 @@ impl EventMemory {
     ) -> Self {
         let mut base = TypedMemoryBase::new(IntelligenceMemoryType::Event, embedding);
         base.importance = Importance::Medium;
-        
+
         Self {
             base,
             title: title.into(),
@@ -177,28 +176,28 @@ impl EventMemory {
             related_events: Vec::new(),
         }
     }
-    
+
     pub fn with_location(mut self, location: impl Into<String>) -> Self {
         self.location = Some(location.into());
         self
     }
-    
+
     pub fn with_category(mut self, category: impl Into<String>) -> Self {
         self.category = Some(category.into());
         self
     }
-    
+
     pub fn with_severity(mut self, severity: u8) -> Self {
         self.severity = Some(severity.min(10));
         self
     }
-    
+
     pub fn with_involved_entity(mut self, entity_id: EntityId) -> Self {
         self.involved_entities.push(entity_id);
         self.base.entity_links.push(entity_id);
         self
     }
-    
+
     pub fn with_related_event(mut self, event_id: MemoryId) -> Self {
         self.related_events.push(event_id);
         self
@@ -250,7 +249,7 @@ impl NarrativeMemory {
     ) -> Self {
         let mut base = TypedMemoryBase::new(IntelligenceMemoryType::Narrative, embedding);
         base.importance = Importance::High;
-        
+
         Self {
             base,
             title: title.into(),
@@ -263,23 +262,23 @@ impl NarrativeMemory {
             narrative_confidence: 0.5,
         }
     }
-    
+
     pub fn with_key_entity(mut self, entity_id: EntityId) -> Self {
         self.key_entities.push(entity_id);
         self.base.entity_links.push(entity_id);
         self
     }
-    
+
     pub fn with_arc_stage(mut self, stage: NarrativeArcStage) -> Self {
         self.arc_stage = stage;
         self
     }
-    
+
     pub fn with_evidence(mut self, memory_id: MemoryId) -> Self {
         self.evidence_memories.push(memory_id);
         self
     }
-    
+
     pub fn with_confidence(mut self, confidence: f32) -> Self {
         self.narrative_confidence = confidence.clamp(0.0, 1.0);
         self
@@ -345,7 +344,7 @@ impl RiskNodeMemory {
     ) -> Self {
         let mut base = TypedMemoryBase::new(IntelligenceMemoryType::RiskNode, embedding);
         base.importance = Importance::High;
-        
+
         Self {
             base,
             name: name.into(),
@@ -359,38 +358,38 @@ impl RiskNodeMemory {
             related_risks: Vec::new(),
         }
     }
-    
+
     pub fn with_vulnerability(mut self, score: u8) -> Self {
         self.vulnerability_score = Some(score.min(10));
         self
     }
-    
+
     pub fn with_impact(mut self, score: u8) -> Self {
         self.impact_score = Some(score.min(10));
         self
     }
-    
+
     pub fn with_indicator(mut self, indicator: impl Into<String>) -> Self {
         self.indicators.push(indicator.into());
         self
     }
-    
+
     pub fn with_mitigation_status(mut self, status: MitigationStatus) -> Self {
         self.mitigation_status = status;
         self
     }
-    
+
     pub fn with_related_risk(mut self, risk_id: MemoryId) -> Self {
         self.related_risks.push(risk_id);
         self
     }
-    
+
     /// Calculate composite risk score
     pub fn composite_risk_score(&self) -> f32 {
         let threat = self.threat_level as f32 / 10.0;
         let vulnerability = self.vulnerability_score.unwrap_or(5) as f32 / 10.0;
         let impact = self.impact_score.unwrap_or(5) as f32 / 10.0;
-        
+
         // Weighted: threat 40%, vulnerability 30%, impact 30%
         threat * 0.4 + vulnerability * 0.3 + impact * 0.3
     }
@@ -445,7 +444,7 @@ impl EvidenceMemory {
     ) -> Self {
         let mut base = TypedMemoryBase::new(IntelligenceMemoryType::Evidence, embedding);
         base.confidence = source_reliability as f32 / 10.0;
-        
+
         Self {
             base,
             content: content.into(),
@@ -458,22 +457,22 @@ impl EvidenceMemory {
             verification_notes: None,
         }
     }
-    
+
     pub fn with_supporting_material(mut self, material: impl Into<String>) -> Self {
         self.supporting_materials.push(material.into());
         self
     }
-    
+
     pub fn with_related_evidence(mut self, evidence_id: MemoryId) -> Self {
         self.related_evidence.push(evidence_id);
         self
     }
-    
+
     pub fn mark_verified(mut self) -> Self {
         self.verified = true;
         self
     }
-    
+
     pub fn with_verification_notes(mut self, notes: impl Into<String>) -> Self {
         self.verification_notes = Some(notes.into());
         self
@@ -521,13 +520,9 @@ pub enum SimulationStatus {
 }
 
 impl SimulationMemory {
-    pub fn new(
-        title: impl Into<String>,
-        scenario: impl Into<String>,
-        embedding: Vec<f32>,
-    ) -> Self {
+    pub fn new(title: impl Into<String>, scenario: impl Into<String>, embedding: Vec<f32>) -> Self {
         let base = TypedMemoryBase::new(IntelligenceMemoryType::Simulation, embedding);
-        
+
         Self {
             base,
             title: title.into(),
@@ -539,27 +534,27 @@ impl SimulationMemory {
             status: SimulationStatus::Draft,
         }
     }
-    
+
     pub fn with_parameter(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.parameters.insert(key.into(), value);
         self
     }
-    
+
     pub fn with_results(mut self, results: impl Into<String>) -> Self {
         self.results = Some(results.into());
         self
     }
-    
+
     pub fn with_outcome(mut self, outcome: SimulationOutcome) -> Self {
         self.outcomes.push(outcome);
         self
     }
-    
+
     pub fn with_status(mut self, status: SimulationStatus) -> Self {
         self.status = status;
         self
     }
-    
+
     pub fn with_related_simulation(mut self, sim_id: MemoryId) -> Self {
         self.related_simulations.push(sim_id);
         self
@@ -591,22 +586,22 @@ impl TypedIntelligenceMemory {
             Self::Simulation(m) => &m.base,
         }
     }
-    
+
     /// Get embedding
     pub fn embedding(&self) -> &[f32] {
         &self.base().embedding
     }
-    
+
     /// Get memory type
     pub fn memory_type(&self) -> &IntelligenceMemoryType {
         &self.base().memory_type
     }
-    
+
     /// Get entity links
     pub fn entity_links(&self) -> &[EntityId] {
         &self.base().entity_links
     }
-    
+
     /// Mark as accessed
     pub fn mark_accessed(&mut self) {
         match self {
@@ -633,7 +628,7 @@ mod tests {
         )
         .with_location("Test Location")
         .with_severity(7);
-        
+
         assert_eq!(event.title, "Test Event");
         assert_eq!(event.severity, Some(7));
         assert_eq!(event.base.memory_type, IntelligenceMemoryType::Event);
@@ -648,7 +643,7 @@ mod tests {
             vec![0.1; 128],
         )
         .with_arc_stage(NarrativeArcStage::Developing);
-        
+
         assert_eq!(narrative.title, "Test Narrative");
         assert_eq!(narrative.arc_stage, NarrativeArcStage::Developing);
     }
@@ -664,7 +659,7 @@ mod tests {
         )
         .with_vulnerability(7)
         .with_impact(9);
-        
+
         let score = risk.composite_risk_score();
         // 0.8*0.4 + 0.7*0.3 + 0.9*0.3 = 0.32 + 0.21 + 0.27 = 0.80
         assert!((score - 0.80).abs() < 0.01);
@@ -680,20 +675,17 @@ mod tests {
             vec![0.1; 128],
         )
         .mark_verified();
-        
+
         assert_eq!(evidence.source_reliability, 8);
         assert!(evidence.verified);
     }
 
     #[test]
     fn test_simulation_memory_creation() {
-        let simulation = SimulationMemory::new(
-            "Test Simulation",
-            "What if scenario",
-            vec![0.1; 128],
-        )
-        .with_status(SimulationStatus::Complete);
-        
+        let simulation =
+            SimulationMemory::new("Test Simulation", "What if scenario", vec![0.1; 128])
+                .with_status(SimulationStatus::Complete);
+
         assert_eq!(simulation.title, "Test Simulation");
         assert_eq!(simulation.status, SimulationStatus::Complete);
     }

@@ -9,14 +9,12 @@
 /// 3. Agent Providers - Verification, analysis, report, simulation agents
 ///
 /// Embedding provider types are defined in rememnemosyne-core for cross-crate use.
-
 // Re-export embedding types from core
 pub use rememnemosyne_core::{
-    EmbeddingProvider, EmbeddingProviderConfig, EmbeddingProviderType,
-    EmbeddingRequest, EmbeddingResponse, HashEmbedder,
+    EmbeddingProvider, EmbeddingProviderConfig, EmbeddingProviderType, EmbeddingRequest,
+    EmbeddingResponse, HashEmbedder,
 };
 
-use rememnemosyne_core::MemoryError;
 use rememnemosyne_core::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -72,7 +70,7 @@ impl EmbeddingProviderRouter {
         let response = self.provider.embed(request).await?;
         Ok(response.embedding)
     }
-    
+
     /// Clone the provider Arc for use across await boundaries
     pub fn clone_provider(&self) -> Arc<dyn EmbeddingProvider> {
         self.provider.clone()
@@ -80,9 +78,7 @@ impl EmbeddingProviderRouter {
 
     /// Generate embeddings for multiple texts
     pub async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        let requests: Vec<_> = texts.iter()
-            .map(|t| EmbeddingRequest::new(t))
-            .collect();
+        let requests: Vec<_> = texts.iter().map(EmbeddingRequest::new).collect();
         let responses = self.provider.embed_batch(requests).await?;
         Ok(responses.into_iter().map(|r| r.embedding).collect())
     }
@@ -209,10 +205,10 @@ pub struct ReasoningResponse {
 pub trait ReasoningProvider: Send + Sync {
     /// Execute a reasoning task
     async fn reason(&self, request: ReasoningRequest) -> Result<ReasoningResponse>;
-    
+
     /// Get provider name
     fn provider_name(&self) -> &str;
-    
+
     /// Get model name
     fn model_name(&self) -> &str;
 }
@@ -302,10 +298,10 @@ pub struct AgentResponse {
 pub trait AgentProvider: Send + Sync {
     /// Execute an agent task
     async fn execute(&self, request: AgentRequest) -> Result<AgentResponse>;
-    
+
     /// Get agent type
     fn agent_type(&self) -> &AgentType;
-    
+
     /// Get agent name
     fn agent_name(&self) -> &str;
 }
@@ -333,48 +329,48 @@ impl ProviderRegistry {
             agent_providers: parking_lot::RwLock::new(HashMap::new()),
         }
     }
-    
+
     /// Set the active embedding provider
     pub fn set_embedding_provider(&self, provider: Arc<dyn EmbeddingProvider>) {
         *self.embedding_provider.write() = Some(provider);
     }
-    
+
     /// Set the active reasoning provider
     pub fn set_reasoning_provider(&self, provider: Arc<dyn ReasoningProvider>) {
         *self.reasoning_provider.write() = Some(provider);
     }
-    
+
     /// Register an agent provider
     pub fn register_agent(&self, agent: Arc<dyn AgentProvider>) {
         let agent_type = agent.agent_type().clone();
         self.agent_providers.write().insert(agent_type, agent);
     }
-    
+
     /// Get embedding provider
     pub fn get_embedding_provider(&self) -> Option<Arc<dyn EmbeddingProvider>> {
         self.embedding_provider.read().clone()
     }
-    
+
     /// Get reasoning provider
     pub fn get_reasoning_provider(&self) -> Option<Arc<dyn ReasoningProvider>> {
         self.reasoning_provider.read().clone()
     }
-    
+
     /// Get agent provider by type
     pub fn get_agent_provider(&self, agent_type: &AgentType) -> Option<Arc<dyn AgentProvider>> {
         self.agent_providers.read().get(agent_type).cloned()
     }
-    
+
     /// Check if embedding provider is configured
     pub fn has_embedding_provider(&self) -> bool {
         self.embedding_provider.read().is_some()
     }
-    
+
     /// Check if reasoning provider is configured
     pub fn has_reasoning_provider(&self) -> bool {
         self.reasoning_provider.read().is_some()
     }
-    
+
     /// List registered agent types
     pub fn registered_agents(&self) -> Vec<AgentType> {
         self.agent_providers.read().keys().cloned().collect()
@@ -433,17 +429,20 @@ pub struct StubReasoningProvider;
 impl ReasoningProvider for StubReasoningProvider {
     async fn reason(&self, request: ReasoningRequest) -> Result<ReasoningResponse> {
         Ok(ReasoningResponse {
-            text: format!("[Stub reasoning for: {}]", request.context.chars().take(50).collect::<String>()),
+            text: format!(
+                "[Stub reasoning for: {}]",
+                request.context.chars().take(50).collect::<String>()
+            ),
             model: "stub".to_string(),
             prompt_tokens: None,
             completion_tokens: None,
         })
     }
-    
+
     fn provider_name(&self) -> &str {
         "stub"
     }
-    
+
     fn model_name(&self) -> &str {
         "stub-model"
     }

@@ -1,9 +1,8 @@
 /// JSON backup/export and import functionality
-/// 
+///
 /// This module provides comprehensive JSON-based backup and export capabilities
 /// for all memory data. It enables interoperability and data migration.
 /// Enabled with the `backup-export` feature flag.
-
 use chrono::{DateTime, Utc};
 use rememnemosyne_core::{EntityId, MemoryArtifact, MemoryError, Result};
 use serde::{Deserialize, Serialize};
@@ -101,9 +100,9 @@ impl BackupManager {
             MemoryError::Serialization(format!("Failed to serialize backup: {}", e))
         })?;
 
-        tokio::fs::write(path, json).await.map_err(|e| {
-            MemoryError::Io(e)
-        })?;
+        tokio::fs::write(path, json)
+            .await
+            .map_err(|e| MemoryError::Io(e))?;
 
         tracing::info!(
             path = ?path,
@@ -131,9 +130,9 @@ impl BackupManager {
 
     /// Import from JSON file
     pub async fn import_from_file(&self, path: &Path) -> Result<MemoryBackup> {
-        let json = tokio::fs::read_to_string(path).await.map_err(|e| {
-            MemoryError::Io(e)
-        })?;
+        let json = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| MemoryError::Io(e))?;
 
         self.import_from_json(&json)
     }
@@ -203,7 +202,7 @@ mod tests {
     #[test]
     fn test_ndjson_roundtrip() {
         let manager = BackupManager::default_manager();
-        
+
         // Test that NDJSON export/import works
         let ndjson = manager.export_to_ndjson(&[]).unwrap();
         let memories = manager.import_from_ndjson(&ndjson).unwrap();

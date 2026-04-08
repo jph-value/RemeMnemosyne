@@ -102,7 +102,7 @@ pub enum RelationshipType {
 }
 
 /// The core memory artifact stored across all memory types
-/// 
+///
 /// Follows the mempalace pattern: content is verbatim (never altered),
 /// while summary is a separate pointer. This preserves full context fidelity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,7 +163,7 @@ impl PalaceLocation {
             room: room.into(),
         }
     }
-    
+
     /// Get full path string
     pub fn path(&self) -> String {
         format!("{}/{}/{}", self.wing, self.hall, self.room)
@@ -232,35 +232,35 @@ impl MemoryArtifact {
         self.access_count += 1;
         self.last_accessed = Some(Utc::now());
     }
-    
+
     // ========================================================================
     // Verbatim Preservation Methods (mempalace drawer/closet pattern)
     // ========================================================================
-    
+
     /// Set raw content separately from summary (preserves verbatim content)
     pub fn with_raw_content(mut self, raw: impl Into<String>) -> Self {
         self.raw_content = Some(raw.into());
         self
     }
-    
+
     /// Mark this memory as a summary (not raw content)
     pub fn as_summary(mut self) -> Self {
         self.is_summary = true;
         self
     }
-    
+
     /// Set source reference (document URL, file path, etc.)
     pub fn with_source_ref(mut self, source: impl Into<String>) -> Self {
         self.source_ref = Some(source.into());
         self
     }
-    
+
     /// Set spatial location in Memory Palace
     pub fn with_palace_location(mut self, location: PalaceLocation) -> Self {
         self.palace_location = Some(location);
         self
     }
-    
+
     /// Convenience: set palace location from components
     pub fn in_palace_room(
         mut self,
@@ -271,22 +271,23 @@ impl MemoryArtifact {
         self.palace_location = Some(PalaceLocation::new(wing, hall, room));
         self
     }
-    
+
     /// Get effective content: prefer raw content if available, fallback to content
     pub fn effective_content(&self) -> &str {
         self.raw_content.as_deref().unwrap_or(&self.content)
     }
-    
+
     /// Check if this memory has preserved raw content
     pub fn has_raw_content(&self) -> bool {
         self.raw_content.is_some()
     }
-    
+
     /// Check if this memory is located in a specific palace room
     pub fn is_in_palace_room(&self, wing: &str, hall: &str, room: &str) -> bool {
-        self.palace_location.as_ref().map(|loc| {
-            loc.wing == wing && loc.hall == hall && loc.room == room
-        }).unwrap_or(false)
+        self.palace_location
+            .as_ref()
+            .map(|loc| loc.wing == wing && loc.hall == hall && loc.room == room)
+            .unwrap_or(false)
     }
 
     #[inline]

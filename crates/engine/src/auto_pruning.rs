@@ -1,9 +1,8 @@
 /// Enhanced auto-pruning for low-importance memories
-/// 
+///
 /// This module extends the existing pruner with more advanced auto-pruning strategies
 /// including importance-based tiered pruning, access pattern analysis, and configurable policies.
 /// Enabled with the `auto-pruning` feature flag.
-
 use chrono::Utc;
 use rememnemosyne_core::{Importance, MemoryArtifact, MemoryId, Result};
 use serde::{Deserialize, Serialize};
@@ -34,7 +33,7 @@ impl Default for AutoPrunerConfig {
         max_memories.insert("High".to_string(), 50000);
         max_memories.insert("Medium".to_string(), 20000);
         max_memories.insert("Low".to_string(), 5000);
-        
+
         Self {
             enabled: false,
             prune_interval: Duration::from_secs(3600), // 1 hour
@@ -122,35 +121,41 @@ impl AutoPruner {
             last_prune: parking_lot::RwLock::new(None),
         }
     }
-    
+
     /// Create with default config
     pub fn default_pruner() -> Self {
         Self::new(AutoPrunerConfig::default())
     }
-    
+
     /// Execute a pruning run
-    pub fn prune(&self, memories: Vec<MemoryArtifact>) -> Result<(Vec<MemoryArtifact>, AutoPruneStats)> {
+    pub fn prune(
+        &self,
+        memories: Vec<MemoryArtifact>,
+    ) -> Result<(Vec<MemoryArtifact>, AutoPruneStats)> {
         let start = std::time::Instant::now();
-        
+
         if !self.config.enabled {
-            return Ok((memories, AutoPruneStats {
-                total_evaluated: memories.len(),
-                pruned_by_importance: 0,
-                pruned_by_age: 0,
-                pruned_by_access: 0,
-                archived: 0,
-                deleted: 0,
-                duration_ms: 0,
-            }));
+            return Ok((
+                memories,
+                AutoPruneStats {
+                    total_evaluated: memories.len(),
+                    pruned_by_importance: 0,
+                    pruned_by_age: 0,
+                    pruned_by_access: 0,
+                    archived: 0,
+                    deleted: 0,
+                    duration_ms: 0,
+                },
+            ));
         }
-        
+
         let mut kept = Vec::new();
         let mut pruned_by_importance = 0;
         let mut pruned_by_age = 0;
         let mut pruned_by_access = 0;
         let mut archived = 0;
         let mut deleted = 0;
-        
+
         for memory in memories {
             if self.should_prune_memory(&memory) {
                 // Archive before delete if configured
@@ -158,20 +163,22 @@ impl AutoPruner {
                     archived += 1;
                 }
                 deleted += 1;
-                
+
                 match self.config.strategy {
                     PruningStrategy::ImportanceBased => pruned_by_importance += 1,
-                    PruningStrategy::LeastRecentlyAccessed | PruningStrategy::OldestFirst => pruned_by_age += 1,
+                    PruningStrategy::LeastRecentlyAccessed | PruningStrategy::OldestFirst => {
+                        pruned_by_age += 1
+                    }
                     PruningStrategy::LowAccessCount => pruned_by_access += 1,
                 }
             } else {
                 kept.push(memory);
             }
         }
-        
+
         let duration = start.elapsed();
         let total_evaluated = pruned_by_importance + pruned_by_age + pruned_by_access + kept.len();
-        
+
         let stats = AutoPruneStats {
             total_evaluated,
             pruned_by_importance,
@@ -181,10 +188,10 @@ impl AutoPruner {
             deleted,
             duration_ms: duration.as_millis() as u64,
         };
-        
+
         // Update last prune timestamp
         *self.last_prune.write() = Some(Utc::now());
-        
+
         tracing::info!(
             total = total_evaluated,
             pruned = pruned_by_importance + pruned_by_age + pruned_by_access,
@@ -192,17 +199,17 @@ impl AutoPruner {
             deleted = deleted,
             "Auto-pruning completed"
         );
-        
+
         Ok((kept, stats))
     }
-    
+
     /// Determine if a memory should be pruned
     fn should_prune_memory(&self, memory: &MemoryArtifact) -> bool {
         // Never prune Critical memories
         if memory.importance == Importance::Critical {
             return false;
         }
-        
+
         match self.config.strategy {
             PruningStrategy::ImportanceBased => self.should_prune_by_importance(memory),
             PruningStrategy::LeastRecentlyAccessed => self.should_prune_by_access(memory),
@@ -210,12 +217,12 @@ impl AutoPruner {
             PruningStrategy::LowAccessCount => self.should_prune_by_low_access(memory),
         }
     }
-    
+
     /// Prune by importance with tiered thresholds
     fn should_prune_by_importance(&self, memory: &MemoryArtifact) -> bool {
         let relevance = memory.compute_relevance();
         let age_days = (Utc::now() - memory.timestamp).num_days();
-        
+
         match memory.importance {
             Importance::Low => {
                 relevance < self.config.importance_thresholds.low_min_relevance
@@ -225,26 +232,24 @@ impl AutoPruner {
                 relevance < self.config.importance_thresholds.medium_min_relevance
                     || age_days > self.config.importance_thresholds.medium_max_age_days
             }
-            Importance::High => {
-                relevance < self.config.importance_thresholds.high_min_relevance
-            }
+            Importance::High => relevance < self.config.importance_thresholds.high_min_relevance,
             Importance::Critical => false, // Never prune critical
         }
     }
-    
+
     /// Prune least recently accessed
     fn should_prune_by_access(&self, memory: &MemoryArtifact) -> bool {
         let last_accessed = memory.last_accessed.unwrap_or(memory.timestamp);
         let age_days = (Utc::now() - last_accessed).num_days();
-        
+
         // Prune if not accessed for >90 days
         age_days > 90
     }
-    
+
     /// Prune oldest memories
     fn should_prune_by_age(&self, memory: &MemoryArtifact) -> bool {
         let age_days = (Utc::now() - memory.timestamp).num_days();
-        
+
         match memory.importance {
             Importance::Low => age_days > 180,
             Importance::Medium => age_days > 365,
@@ -252,20 +257,20 @@ impl AutoPruner {
             Importance::Critical => false,
         }
     }
-    
+
     /// Prune memories with low access counts
     fn should_prune_by_low_access(&self, memory: &MemoryArtifact) -> bool {
         // Prune if accessed less than 2 times and older than 60 days
         let age_days = (Utc::now() - memory.timestamp).num_days();
         memory.access_count < 2 && age_days > 60
     }
-    
+
     /// Check if pruning is needed
     pub fn should_prune(&self) -> bool {
         if !self.config.enabled {
             return false;
         }
-        
+
         let last = self.last_prune.read();
         match *last {
             Some(last_time) => {
@@ -275,7 +280,7 @@ impl AutoPruner {
             None => true, // Never pruned
         }
     }
-    
+
     /// Get config
     pub fn config(&self) -> &AutoPrunerConfig {
         &self.config
@@ -291,23 +296,29 @@ impl AutoPruner {
     pub fn new(_config: AutoPrunerConfig) -> Self {
         Self
     }
-    
+
     pub fn default_pruner() -> Self {
         Self
     }
-    
-    pub fn prune(&self, memories: Vec<MemoryArtifact>) -> Result<(Vec<MemoryArtifact>, AutoPruneStats)> {
-        Ok((memories, AutoPruneStats {
-            total_evaluated: memories.len(),
-            pruned_by_importance: 0,
-            pruned_by_age: 0,
-            pruned_by_access: 0,
-            archived: 0,
-            deleted: 0,
-            duration_ms: 0,
-        }))
+
+    pub fn prune(
+        &self,
+        memories: Vec<MemoryArtifact>,
+    ) -> Result<(Vec<MemoryArtifact>, AutoPruneStats)> {
+        Ok((
+            memories,
+            AutoPruneStats {
+                total_evaluated: memories.len(),
+                pruned_by_importance: 0,
+                pruned_by_age: 0,
+                pruned_by_access: 0,
+                archived: 0,
+                deleted: 0,
+                duration_ms: 0,
+            },
+        ))
     }
-    
+
     pub fn should_prune(&self) -> bool {
         false
     }

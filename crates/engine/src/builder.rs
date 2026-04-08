@@ -1,23 +1,21 @@
 use rememnemosyne_core::*;
-use rememnemosyne_semantic::{SemanticMemoryStore, SemanticMemoryConfig};
-use rememnemosyne_episodic::{EpisodicMemoryStore, EpisodicMemoryConfig};
-use rememnemosyne_graph::{GraphMemoryStore, GraphMemoryConfig};
-use rememnemosyne_temporal::{TemporalMemoryStore, TemporalMemoryConfig};
+use rememnemosyne_episodic::{EpisodicMemoryConfig, EpisodicMemoryStore};
+use rememnemosyne_graph::{GraphMemoryConfig, GraphMemoryStore};
+use rememnemosyne_semantic::{SemanticMemoryConfig, SemanticMemoryStore};
 #[cfg(feature = "persistence")]
 use rememnemosyne_storage::backend::StorageBackend;
-#[cfg(feature = "persistence")]
-use rememnemosyne_storage::StorageConfig;
 #[cfg(feature = "persistence")]
 use rememnemosyne_storage::snapshot::SnapshotManager;
 #[cfg(feature = "persistence")]
 use rememnemosyne_storage::RocksStorage;
-#[cfg(feature = "sled-storage")]
-use rememnemosyne_storage::SledStorage;
+#[cfg(feature = "persistence")]
+use rememnemosyne_storage::StorageConfig;
+use rememnemosyne_temporal::{TemporalMemoryConfig, TemporalMemoryStore};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::context::{ContextBuilderConfig, ContextBuilderEngine};
 use crate::router::{MemoryRouter, MemoryRouterConfig};
-use crate::context::{ContextBuilderEngine, ContextBuilderConfig};
 
 /// Main engine configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +54,7 @@ impl Default for RememnosyneConfig {
 }
 
 /// The Mnemosyne Memory Engine
-/// 
+///
 /// A unified agentic memory system with:
 /// - Semantic memory (TurboQuant compressed vectors)
 /// - Episodic memory (conversation episodes)
@@ -89,7 +87,7 @@ impl RememnosyneEngine {
         // Ensure router embedding dimensions match semantic store
         let mut router_config = config.router.clone();
         router_config.embedding_dimensions = config.semantic.dimensions;
-        
+
         // Create router
         let router = Arc::new(MemoryRouter::new(
             router_config,
@@ -114,7 +112,7 @@ impl RememnosyneEngine {
         } else {
             (None, None)
         };
-        
+
         #[cfg(not(feature = "persistence"))]
         let (storage, snapshots) = (None, None);
 
@@ -151,7 +149,10 @@ impl RememnosyneEngine {
         // Sanitize content before storing
         let sanitized = crate::sanitizer::sanitize_input(&content_str);
         let safe_content = if sanitized.is_suspicious {
-            tracing::warn!("Suspicious input detected in remember(): {:?}", sanitized.detected_patterns);
+            tracing::warn!(
+                "Suspicious input detected in remember(): {:?}",
+                sanitized.detected_patterns
+            );
             sanitized.clean_text
         } else {
             sanitized.clean_text
@@ -185,10 +186,13 @@ impl RememnosyneEngine {
     /// Generate embedding for text
     async fn generate_embedding(&self, text: &str) -> Vec<f32> {
         // Use the router's embedding provider
-        self.router.generate_embedding(text).await.unwrap_or_else(|e| {
-            tracing::warn!("Embedding generation failed: {}", e);
-            vec![0.0; self.router.embedding_dimensions()]
-        })
+        self.router
+            .generate_embedding(text)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("Embedding generation failed: {}", e);
+                vec![0.0; self.router.embedding_dimensions()]
+            })
     }
 
     /// Recall memories based on query
@@ -196,7 +200,10 @@ impl RememnosyneEngine {
         // Sanitize query before processing
         let sanitized = crate::sanitizer::sanitize_input(query);
         let safe_query = if sanitized.is_suspicious {
-            tracing::warn!("Suspicious query in recall(): {:?}", sanitized.detected_patterns);
+            tracing::warn!(
+                "Suspicious query in recall(): {:?}",
+                sanitized.detected_patterns
+            );
             &sanitized.clean_text
         } else {
             query
@@ -207,7 +214,9 @@ impl RememnosyneEngine {
             .with_limit(self.config.context.max_memories);
 
         let response = self.router.query(&mem_query).await?;
-        let bundle = self.context_builder.build_context(&response, vec![], vec![]);
+        let bundle = self
+            .context_builder
+            .build_context(&response, vec![], vec![]);
 
         Ok(bundle)
     }
@@ -223,7 +232,11 @@ impl RememnosyneEngine {
     }
 
     /// Search entities by name/description
-    pub async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
+    pub async fn search_entities(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
         self.router.search_entities(query, limit).await
     }
 
@@ -258,7 +271,7 @@ impl RememnosyneEngine {
     /// Get engine statistics
     pub async fn get_stats(&self) -> EngineStats {
         let router_stats = self.router.get_stats().await;
-        
+
         EngineStats {
             router: router_stats,
             config: self.config.clone(),
@@ -285,12 +298,14 @@ impl RememnosyneEngine {
 
 /// Create the appropriate storage backend based on config
 #[cfg(feature = "persistence")]
-fn create_storage_backend(config: &RememnosyneConfig) -> Result<Arc<dyn StorageBackend + Send + Sync>> {
+fn create_storage_backend(
+    config: &RememnosyneConfig,
+) -> Result<Arc<dyn StorageBackend + Send + Sync>> {
     let storage_path = format!("{}/data", config.data_dir);
 
     // Priority: sled (pure Rust) is default, RocksDB is opt-in
     // This ensures pure Rust deployment by default
-    
+
     #[cfg(feature = "sled-storage")]
     {
         tracing::info!("Using sled storage backend (pure Rust)");

@@ -1,17 +1,16 @@
 /// Memory Palace - Spatial Memory Organization
-/// 
+///
 /// A Rust-native adaptation of the mempalace spatial memory concept.
 /// Organizes memories in a navigable hierarchy:
-/// 
+///
 /// - **Wings**: Top-level containers (person, project, organization)
 /// - **Halls**: Standardized corridors within each wing (facts, events, discoveries, preferences, advice)
 /// - **Rooms**: Specific topics or ideas within a hall
 /// - **Tunnels**: Cross-references linking identical topics across wings
 /// - **Closets**: Summaries/pointers directing searches to original content
 /// - **Drawers**: Raw, verbatim source content (never altered)
-/// 
+///
 /// This spatial organization yields +34% retrieval accuracy compared to flat indexing.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -163,7 +162,7 @@ impl Wing {
     pub fn new(name: impl Into<String>, wing_type: WingType) -> Self {
         let now = Utc::now();
         let name = name.into();
-        
+
         // Create standard halls
         let mut halls = HashMap::new();
         for hall_type in HallType::standard_types() {
@@ -214,11 +213,7 @@ impl Wing {
     pub fn all_rooms(&self) -> Vec<(&str, &Room)> {
         self.halls
             .values()
-            .flat_map(|hall| {
-                hall.rooms
-                    .iter()
-                    .map(|(name, room)| (name.as_str(), room))
-            })
+            .flat_map(|hall| hall.rooms.iter().map(|(name, room)| (name.as_str(), room)))
             .collect()
     }
 }
@@ -402,7 +397,10 @@ impl Room {
     /// Check if room matches a topic
     pub fn matches_topic(&self, topic: &str) -> bool {
         self.name.to_lowercase().contains(&topic.to_lowercase())
-            || self.tags.iter().any(|t| t.to_lowercase().contains(&topic.to_lowercase()))
+            || self
+                .tags
+                .iter()
+                .any(|t| t.to_lowercase().contains(&topic.to_lowercase()))
     }
 }
 
@@ -508,11 +506,7 @@ pub struct Closet {
 
 impl Closet {
     /// Create a new closet
-    pub fn new(
-        title: impl Into<String>,
-        summary: impl Into<String>,
-        drawer_id: MemoryId,
-    ) -> Self {
+    pub fn new(title: impl Into<String>, summary: impl Into<String>, drawer_id: MemoryId) -> Self {
         Self {
             id: MemoryId::new_v4(),
             title: title.into(),
@@ -713,7 +707,7 @@ mod tests {
         let mut palace = MemoryPalace::new("MyPalace");
         let wing = Wing::new("Alice", WingType::Person);
         palace.add_wing(wing);
-        
+
         assert_eq!(palace.wings.len(), 1);
         assert!(palace.get_wing("Alice").is_some());
     }
@@ -730,19 +724,19 @@ mod tests {
     fn test_room_creation() {
         let mut palace = MemoryPalace::new("TestPalace");
         let mut wing = Wing::new("Person1", WingType::Person);
-        
+
         if let Some(hall) = wing.get_hall_mut("hall_facts") {
             let room = hall.get_or_create_room("rust-programming");
             assert_eq!(room.name, "rust-programming");
         }
-        
+
         palace.add_wing(wing);
     }
 
     #[test]
     fn test_drawer_and_closet() {
         let mut room = Room::new("test", "wing", "hall_facts");
-        
+
         let drawer = Drawer::new(
             "Test Conversation",
             "User asked about Rust lifetimes",
@@ -750,14 +744,15 @@ mod tests {
         );
         let drawer_id = drawer.id;
         room.add_drawer(drawer);
-        
+
         let closet = Closet::new(
             "Rust Lifetimes Discussion",
             "Discussion about Rust lifetime annotations",
             drawer_id,
-        ).with_topics(vec!["rust".to_string(), "lifetimes".to_string()]);
+        )
+        .with_topics(vec!["rust".to_string(), "lifetimes".to_string()]);
         room.add_closet(closet);
-        
+
         assert_eq!(room.drawers.len(), 1);
         assert_eq!(room.closets.len(), 1);
     }
@@ -767,10 +762,10 @@ mod tests {
         let mut palace = MemoryPalace::new("TestPalace");
         palace.add_wing(Wing::new("Alice", WingType::Person));
         palace.add_wing(Wing::new("ProjectX", WingType::Project));
-        
+
         palace.add_tunnel("rust", "Alice");
         palace.add_tunnel("rust", "ProjectX");
-        
+
         let wings = palace.find_tunnel_wings("rust");
         assert_eq!(wings.len(), 2);
     }
@@ -779,15 +774,15 @@ mod tests {
     fn test_palace_stats() {
         let mut palace = MemoryPalace::new("TestPalace");
         let mut wing = Wing::new("Test", WingType::Person);
-        
+
         if let Some(hall) = wing.get_hall_mut("hall_facts") {
             hall.get_or_create_room("topic1");
             hall.get_or_create_room("topic2");
         }
-        
+
         palace.add_wing(wing);
         let stats = palace.stats();
-        
+
         assert_eq!(stats.wings, 1);
         assert_eq!(stats.halls, 5);
         assert_eq!(stats.rooms, 2);
@@ -801,7 +796,7 @@ mod tests {
             .search_topic("rust")
             .with_tunnels()
             .limit(10);
-        
+
         assert_eq!(query.wing, Some("Alice".to_string()));
         assert_eq!(query.topic_search, Some("rust".to_string()));
         assert!(query.follow_tunnels);

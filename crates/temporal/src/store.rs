@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::event::{TemporalEvent, TimeWindow, TemporalEventType};
+use crate::event::{TemporalEvent, TemporalEventType, TimeWindow};
 use crate::timeline::{Timeline, TimelineManager};
 
 /// Configuration for temporal memory store
@@ -72,8 +72,13 @@ impl TemporalMemoryStore {
             }
 
             // Add to timeline
-            if let Err(_) = manager.add_event_to_entity(&event.entity_id, event.clone()) {
-                return Err(MemoryError::Storage("Failed to add event to timeline".into()));
+            if manager
+                .add_event_to_entity(&event.entity_id, event.clone())
+                .is_err()
+            {
+                return Err(MemoryError::Storage(
+                    "Failed to add event to timeline".into(),
+                ));
             }
         }
 
@@ -83,13 +88,13 @@ impl TemporalMemoryStore {
         // Index by entity
         self.entity_events
             .entry(event.entity_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(event_id);
 
         // Index by memory
         self.memory_events
             .entry(event.memory_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(event_id);
 
         // Update time index
@@ -109,7 +114,9 @@ impl TemporalMemoryStore {
         entity_id: &EntityId,
         window: Option<&TimeWindow>,
     ) -> Result<Vec<TemporalEvent>> {
-        let event_ids = self.entity_events.get(entity_id)
+        let event_ids = self
+            .entity_events
+            .get(entity_id)
             .map(|ids| ids.clone())
             .unwrap_or_default();
 
@@ -131,11 +138,10 @@ impl TemporalMemoryStore {
     }
 
     /// Get events for a memory
-    pub async fn get_events_for_memory(
-        &self,
-        memory_id: &MemoryId,
-    ) -> Result<Vec<TemporalEvent>> {
-        let event_ids = self.memory_events.get(memory_id)
+    pub async fn get_events_for_memory(&self, memory_id: &MemoryId) -> Result<Vec<TemporalEvent>> {
+        let event_ids = self
+            .memory_events
+            .get(memory_id)
             .map(|ids| ids.clone())
             .unwrap_or_default();
 
@@ -157,7 +163,7 @@ impl TemporalMemoryStore {
         limit: usize,
     ) -> Result<Vec<TemporalEvent>> {
         let time_index = self.time_index.read();
-        
+
         let mut events = Vec::new();
         for (_, event_id) in time_index.iter().rev() {
             if let Some(event) = self.events.get(event_id) {
@@ -182,7 +188,8 @@ impl TemporalMemoryStore {
         event_type: &TemporalEventType,
         limit: usize,
     ) -> Result<Vec<TemporalEvent>> {
-        let mut events: Vec<TemporalEvent> = self.events
+        let mut events: Vec<TemporalEvent> = self
+            .events
             .iter()
             .filter(|e| e.event_type == *event_type)
             .map(|e| e.clone())
@@ -200,14 +207,11 @@ impl TemporalMemoryStore {
     }
 
     /// Search events by description
-    pub async fn search_events(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Vec<TemporalEvent> {
+    pub async fn search_events(&self, query: &str, limit: usize) -> Vec<TemporalEvent> {
         let query_lower = query.to_lowercase();
-        
-        let mut events: Vec<TemporalEvent> = self.events
+
+        let mut events: Vec<TemporalEvent> = self
+            .events
             .iter()
             .filter(|e| e.description.to_lowercase().contains(&query_lower))
             .map(|e| e.clone())
@@ -226,7 +230,7 @@ impl TemporalMemoryStore {
         after: usize,
     ) -> (Vec<TemporalEvent>, Vec<TemporalEvent>) {
         let time_index = self.time_index.read();
-        
+
         // Find position in sorted index
         let pos = time_index
             .binary_search_by(|(t, _)| t.cmp(&timestamp))
@@ -277,8 +281,9 @@ impl TemporalMemoryStore {
     /// Clean up old events
     pub async fn cleanup_old_events(&self) -> Result<usize> {
         let cutoff = Utc::now() - chrono::Duration::days(self.config.event_retention_days);
-        
-        let to_remove: Vec<uuid::Uuid> = self.events
+
+        let to_remove: Vec<uuid::Uuid> = self
+            .events
             .iter()
             .filter(|e| e.timestamp < cutoff)
             .map(|e| *e.key())

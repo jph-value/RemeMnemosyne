@@ -8,7 +8,12 @@ use crate::builder::RememnosyneEngine;
 #[async_trait]
 pub trait AgentMemory: Send + Sync {
     /// Remember something
-    async fn remember(&self, content: &str, summary: &str, trigger: MemoryTrigger) -> Result<MemoryId>;
+    async fn remember(
+        &self,
+        content: &str,
+        summary: &str,
+        trigger: MemoryTrigger,
+    ) -> Result<MemoryId>;
 
     /// Recall relevant memories
     async fn recall(&self, query: &str) -> Result<ContextBundle>;
@@ -26,7 +31,11 @@ pub trait AgentMemory: Send + Sync {
     async fn forget(&self, id: &MemoryId) -> Result<bool>;
 
     /// Search entities
-    async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity>;
+    async fn search_entities(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Vec<rememnemosyne_graph::entity::GraphEntity>;
 
     /// Get context for LLM prompt
     async fn get_context(&self, query: &str, max_tokens: usize) -> Result<String>;
@@ -35,7 +44,12 @@ pub trait AgentMemory: Send + Sync {
 /// Agent memory API implementation
 #[async_trait]
 impl AgentMemory for RememnosyneEngine {
-    async fn remember(&self, content: &str, summary: &str, trigger: MemoryTrigger) -> Result<MemoryId> {
+    async fn remember(
+        &self,
+        content: &str,
+        summary: &str,
+        trigger: MemoryTrigger,
+    ) -> Result<MemoryId> {
         self.remember(content, summary, trigger).await
     }
 
@@ -63,13 +77,18 @@ impl AgentMemory for RememnosyneEngine {
         Ok(true)
     }
 
-    async fn search_entities(&self, query: &str, limit: usize) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
+    async fn search_entities(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
         self.search_entities(query, limit).await
     }
 
     async fn get_context(&self, query: &str, max_tokens: usize) -> Result<String> {
         let mut bundle = self.recall(query).await?;
-        self.context_builder.prune_to_token_limit(&mut bundle, max_tokens);
+        self.context_builder
+            .prune_to_token_limit(&mut bundle, max_tokens);
         Ok(self.context_builder.format_context(&bundle))
     }
 }
@@ -94,7 +113,7 @@ impl StreamingMemoryHandler {
     /// Add text to buffer (e.g., from streaming LLM output)
     pub fn add_text(&mut self, text: &str) {
         self.buffer.push(text.to_string());
-        
+
         // Auto-flush if buffer is full
         if self.buffer.len() >= self.buffer_size {
             self.flush();
@@ -186,28 +205,42 @@ impl BatchMemoryOperations {
 
         for op in &self.operations {
             let start = std::time::Instant::now();
-            
+
             let result = match op {
                 MemoryOperation::Store(artifact) => {
                     match engine.router.store(artifact.clone()).await {
-                        Ok(id) => MemoryOperationResult::success(id, start.elapsed().as_millis() as u64),
-                        Err(e) => MemoryOperationResult::failure(e.to_string(), start.elapsed().as_millis() as u64),
+                        Ok(id) => {
+                            MemoryOperationResult::success(id, start.elapsed().as_millis() as u64)
+                        }
+                        Err(e) => MemoryOperationResult::failure(
+                            e.to_string(),
+                            start.elapsed().as_millis() as u64,
+                        ),
                     }
                 }
-                MemoryOperation::Delete(id) => {
-                    match engine.router.semantic.delete(id).await {
-                        Ok(_) => MemoryOperationResult::success(*id, start.elapsed().as_millis() as u64),
-                        Err(e) => MemoryOperationResult::failure(e.to_string(), start.elapsed().as_millis() as u64),
+                MemoryOperation::Delete(id) => match engine.router.semantic.delete(id).await {
+                    Ok(_) => {
+                        MemoryOperationResult::success(*id, start.elapsed().as_millis() as u64)
                     }
-                }
+                    Err(e) => MemoryOperationResult::failure(
+                        e.to_string(),
+                        start.elapsed().as_millis() as u64,
+                    ),
+                },
                 MemoryOperation::Update(artifact) => {
                     match engine.router.semantic.update(artifact.clone()).await {
-                        Ok(_) => MemoryOperationResult::success(artifact.id, start.elapsed().as_millis() as u64),
-                        Err(e) => MemoryOperationResult::failure(e.to_string(), start.elapsed().as_millis() as u64),
+                        Ok(_) => MemoryOperationResult::success(
+                            artifact.id,
+                            start.elapsed().as_millis() as u64,
+                        ),
+                        Err(e) => MemoryOperationResult::failure(
+                            e.to_string(),
+                            start.elapsed().as_millis() as u64,
+                        ),
                     }
                 }
             };
-            
+
             results.push(result);
         }
 

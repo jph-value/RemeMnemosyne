@@ -1,9 +1,8 @@
 /// Entity resolution with fuzzy matching for deduplication
-/// 
+///
 /// This module provides entity resolution capabilities to detect and merge
 /// duplicate entities based on name similarity, embedding similarity, and
 /// other heuristics. Enabled with the `entity-resolution` feature flag.
-
 use rememnemosyne_core::EntityId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -82,10 +81,7 @@ impl EntityResolver {
 
     /// Find potential duplicate entities
     #[cfg(feature = "entity-resolution")]
-    pub fn find_duplicates(
-        &self,
-        entities: &HashMap<EntityId, GraphEntity>,
-    ) -> Vec<EntityMatch> {
+    pub fn find_duplicates(&self, entities: &HashMap<EntityId, GraphEntity>) -> Vec<EntityMatch> {
         use strsim::normalized_damerau_levenshtein;
 
         let mut matches = Vec::new();
@@ -97,14 +93,20 @@ impl EntityResolver {
                     continue; // Skip self and avoid duplicates
                 }
 
-                if let Some(match_result) = self.check_match(entity_a, entity_b, &normalized_damerau_levenshtein) {
+                if let Some(match_result) =
+                    self.check_match(entity_a, entity_b, &normalized_damerau_levenshtein)
+                {
                     matches.push(match_result);
                 }
             }
         }
 
         // Sort by confidence
-        matches.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        matches.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         matches
     }
 
@@ -186,10 +188,7 @@ impl EntityResolver {
 
     /// Stub implementation when feature is not enabled
     #[cfg(not(feature = "entity-resolution"))]
-    pub fn find_duplicates(
-        &self,
-        _entities: &HashMap<EntityId, GraphEntity>,
-    ) -> Vec<EntityMatch> {
+    pub fn find_duplicates(&self, _entities: &HashMap<EntityId, GraphEntity>) -> Vec<EntityMatch> {
         Vec::new()
     }
 
@@ -212,7 +211,7 @@ impl EntityResolver {
                     let mut a_clone = a.clone();
                     a_clone.mention_count += b.mention_count;
                     a_clone.memory_ids.extend(b.memory_ids.iter());
-                    
+
                     // Add aliases from b
                     for alias in &b.aliases {
                         if !a_clone.aliases.contains(alias) {
@@ -220,30 +219,34 @@ impl EntityResolver {
                         }
                     }
                     // Add b's name as alias if different
-                    if !a_clone.aliases.contains(&b.name) && a_clone.name.to_lowercase() != b.name.to_lowercase() {
+                    if !a_clone.aliases.contains(&b.name)
+                        && a_clone.name.to_lowercase() != b.name.to_lowercase()
+                    {
                         a_clone.aliases.push(b.name.clone());
                     }
-                    
+
                     a_clone.importance_score = a_clone.compute_importance();
-                    
+
                     entities.insert(a_clone.id, a_clone);
                 } else {
                     // Merge a into b
                     let mut b_clone = b.clone();
                     b_clone.mention_count += a.mention_count;
                     b_clone.memory_ids.extend(a.memory_ids.iter());
-                    
+
                     for alias in &a.aliases {
                         if !b_clone.aliases.contains(alias) {
                             b_clone.aliases.push(alias.clone());
                         }
                     }
-                    if !b_clone.aliases.contains(&a.name) && b_clone.name.to_lowercase() != a.name.to_lowercase() {
+                    if !b_clone.aliases.contains(&a.name)
+                        && b_clone.name.to_lowercase() != a.name.to_lowercase()
+                    {
                         b_clone.aliases.push(a.name.clone());
                     }
-                    
+
                     b_clone.importance_score = b_clone.compute_importance();
-                    
+
                     entities.insert(b_clone.id, b_clone);
                 }
 
@@ -265,7 +268,6 @@ impl EntityResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rememnemosyne_core::EntityType;
 
     #[cfg(feature = "entity-resolution")]
     #[test]

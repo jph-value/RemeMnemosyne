@@ -1,9 +1,9 @@
-pub mod router;
-pub mod context;
-pub mod builder;
 pub mod api;
-pub mod sanitizer;
+pub mod builder;
+pub mod context;
 pub mod pruner;
+pub mod router;
+pub mod sanitizer;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
@@ -25,12 +25,12 @@ pub mod auto_pruning;
 
 pub mod providers;
 
-pub use router::*;
-pub use context::*;
-pub use builder::*;
 pub use api::*;
-pub use sanitizer::*;
+pub use builder::*;
+pub use context::*;
 pub use pruner::*;
+pub use router::*;
+pub use sanitizer::*;
 
 #[cfg(feature = "metrics")]
 pub use metrics::*;
@@ -41,9 +41,7 @@ pub use http_server::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rememnemosyne_core::{
-        MemoryArtifact, MemoryType, MemoryTrigger, MemoryQuery, Importance,
-    };
+    use rememnemosyne_core::{Importance, MemoryArtifact, MemoryTrigger, MemoryType};
 
     #[test]
     fn test_sanitize_input_normal() {
@@ -118,7 +116,10 @@ mod tests {
             ..Default::default()
         });
         let result = inline.format_context(&bundle);
-        assert!(result.is_empty(), "InlineHints with empty bundle should produce empty output");
+        assert!(
+            result.is_empty(),
+            "InlineHints with empty bundle should produce empty output"
+        );
 
         let block = ContextBuilderEngine::new(ContextBuilderConfig {
             format_strategy: ContextFormatStrategy::ContextBlock,
@@ -126,7 +127,10 @@ mod tests {
         });
         let result = block.format_context(&bundle);
         // ContextBlock produces header even for empty bundle
-        assert!(result.contains("Memory Context"), "ContextBlock should produce header");
+        assert!(
+            result.contains("Memory Context"),
+            "ContextBlock should produce header"
+        );
     }
 
     #[test]

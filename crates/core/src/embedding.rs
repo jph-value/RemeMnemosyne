@@ -10,11 +10,10 @@
 /// - Cohere - Cohere embed
 /// - Ollama - Local Ollama models
 /// - Custom - User's own API endpoint
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{MemoryError, Result};
+use crate::error::Result;
 
 // ============================================================================
 // Provider Configuration
@@ -201,14 +200,15 @@ impl HashEmbedder {
     pub fn embed_sync(&self, text: &str) -> Vec<f32> {
         let mut embedding = vec![0.0; self.dimensions];
         let text_lower = text.to_lowercase();
-        let words: Vec<&str> = text_lower.split_whitespace()
+        let words: Vec<&str> = text_lower
+            .split_whitespace()
             .filter(|w| w.len() > 2)
             .collect();
 
         for word in words {
             let hash = fnv_hash(word);
             let idx = (hash as usize) % self.dimensions;
-            let sign = if hash % 2 == 0 { 1.0 } else { -1.0 };
+            let sign = if hash.is_multiple_of(2) { 1.0 } else { -1.0 };
             embedding[idx] += sign;
         }
 

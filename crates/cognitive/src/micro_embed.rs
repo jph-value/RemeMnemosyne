@@ -147,7 +147,7 @@ impl MicroEmbedder {
         for word in words {
             let hash = self.fnv_hash(&word);
             let idx = (hash as usize) % self.config.dimensions;
-            let sign = if hash % 2 == 0 { 1.0 } else { -1.0 };
+            let sign = if hash.is_multiple_of(2) { 1.0 } else { -1.0 };
             embedding[idx] += sign;
         }
 
