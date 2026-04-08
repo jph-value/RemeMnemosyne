@@ -4,6 +4,7 @@ pub mod traits;
 pub mod query;
 pub mod typed_memory;
 pub mod palace;
+pub mod embedding;
 
 pub use error::{MemoryError, Result};
 pub use types::*;
@@ -11,6 +12,7 @@ pub use traits::*;
 pub use query::*;
 pub use typed_memory::*;
 pub use palace::*;
+pub use embedding::*;
 
 #[cfg(test)]
 mod tests {

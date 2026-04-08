@@ -3,7 +3,8 @@ use rememnemosyne_semantic::SemanticMemoryStore;
 use rememnemosyne_episodic::EpisodicMemoryStore;
 use rememnemosyne_graph::{GraphMemoryStore, entity::GraphEntity};
 use rememnemosyne_temporal::{TemporalMemoryStore, TemporalEvent};
-use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher, MicroEmbedder};
+use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher};
+use crate::providers::{EmbeddingProviderRouter, EmbeddingRequest};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -15,6 +16,8 @@ pub struct MemoryRouterConfig {
     pub prefetch_threshold: f32,
     pub combine_scores: bool,
     pub embedding_dimensions: usize,
+    /// Embedding provider configuration
+    pub embedding_config: Option<EmbeddingProviderConfig>,
 }
 
 impl Default for MemoryRouterConfig {
@@ -24,12 +27,17 @@ impl Default for MemoryRouterConfig {
             enable_prefetch: true,
             prefetch_threshold: 0.5,
             combine_scores: true,
-            embedding_dimensions: 1536, // Match semantic store default
+            embedding_dimensions: 384, // Match default embedding dimensions
+            embedding_config: None,
         }
     }
 }
 
 /// Memory router - coordinates queries across all memory stores
+/// 
+/// Uses the EmbeddingProviderRouter for generating embeddings,
+/// supporting pluggable embedding providers (OpenAI, Voyage, Cohere,
+/// Ollama, Candle/local, or hash fallback).
 pub struct MemoryRouter {
     config: MemoryRouterConfig,
     pub semantic: Arc<SemanticMemoryStore>,
@@ -38,7 +46,8 @@ pub struct MemoryRouter {
     pub temporal: Arc<TemporalMemoryStore>,
     predictor: Arc<parking_lot::RwLock<ContextPredictor>>,
     prefetcher: Arc<parking_lot::RwLock<MemoryPrefetcher>>,
-    embedder: Arc<parking_lot::RwLock<MicroEmbedder>>,
+    /// Pluggable embedding provider
+    embedder: Arc<parking_lot::RwLock<EmbeddingProviderRouter>>,
 }
 
 impl MemoryRouter {
@@ -49,14 +58,14 @@ impl MemoryRouter {
         graph: Arc<GraphMemoryStore>,
         temporal: Arc<TemporalMemoryStore>,
     ) -> Self {
-        // Create micro-embedder with matching dimensions
-        let embedder_config = rememnemosyne_cognitive::MicroEmbedConfig {
-            dimensions: config.embedding_dimensions,
-            model_type: rememnemosyne_cognitive::MicroEmbedModel::Hash,
-            normalize: true,
-            cache_size: 10000,
+        // Create embedding provider router
+        let embedder = if let Some(ref embed_config) = config.embedding_config {
+            EmbeddingProviderRouter::from_config(embed_config)
+        } else {
+            // Use hash embedder as fallback with configured dimensions
+            EmbeddingProviderRouter::new(Arc::new(HashEmbedder::new(config.embedding_dimensions)))
         };
-        
+
         Self {
             config,
             semantic,
@@ -65,7 +74,7 @@ impl MemoryRouter {
             temporal,
             predictor: Arc::new(parking_lot::RwLock::new(ContextPredictor::new(Default::default()))),
             prefetcher: Arc::new(parking_lot::RwLock::new(MemoryPrefetcher::new(Default::default()))),
-            embedder: Arc::new(parking_lot::RwLock::new(MicroEmbedder::new(embedder_config))),
+            embedder: Arc::new(parking_lot::RwLock::new(embedder)),
         }
     }
 
@@ -73,18 +82,21 @@ impl MemoryRouter {
     pub async fn query(&self, query: &MemoryQuery) -> Result<MemoryResponse> {
         let mut response = MemoryResponse::new();
 
-        // Generate micro-embedding for query if text provided
+        // Generate embedding for query using the active provider
         let query_embedding = if let Some(ref text) = query.text {
-            let embedding = {
+            // Clone the provider to avoid holding lock across await
+            let provider = {
                 let embedder = self.embedder.read();
-                embedder.embed(text)
+                embedder.clone_provider()
             };
+            let request = EmbeddingRequest::new(text);
+            let response = provider.embed(request).await?;
 
             // Update predictor context
             let mut predictor = self.predictor.write();
             predictor.add_context(text, vec![]);
 
-            Some(embedding)
+            Some(response.embedding)
         } else {
             query.embedding.clone()
         };
@@ -221,21 +233,43 @@ impl MemoryRouter {
         }
     }
 
-    /// Generate embedding for text using the micro-embedder
-    pub async fn generate_embedding(&self, text: &str) -> Vec<f32> {
-        let embedder = self.embedder.read();
-        let embedding = embedder.embed(text);
-        
+    /// Generate embedding for text using the active embedding provider
+    pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        // Clone the provider Arc to avoid holding the lock across await
+        let provider = {
+            let embedder = self.embedder.read();
+            embedder.clone_provider()
+        };
+
+        let request = EmbeddingRequest::new(text);
+        let response = provider.embed(request).await?;
+        let embedding = response.embedding;
+
         // Ensure embedding has correct dimensions
         if embedding.len() != self.config.embedding_dimensions {
-            // Pad or truncate to correct dimensions
             let mut corrected = vec![0.0; self.config.embedding_dimensions];
             let copy_len = std::cmp::min(embedding.len(), self.config.embedding_dimensions);
             corrected[..copy_len].copy_from_slice(&embedding[..copy_len]);
-            corrected
+            Ok(corrected)
         } else {
-            embedding
+            Ok(embedding)
         }
+    }
+
+    /// Get embedding provider info
+    pub fn get_provider_info(&self) -> crate::providers::ProviderInfo {
+        self.embedder.read().provider_info()
+    }
+
+    /// Replace the active embedding provider
+    pub fn set_embedding_provider(&self, provider: Arc<dyn EmbeddingProvider>) {
+        let mut embedder = self.embedder.write();
+        embedder.set_provider(provider);
+    }
+
+    /// Get embedding dimensions
+    pub fn embedding_dimensions(&self) -> usize {
+        self.config.embedding_dimensions
     }
 }
 

@@ -1,9 +1,16 @@
 /// Candle-based real ML embeddings for production use
-/// 
+///
 /// This module provides real sentence embeddings using transformer models
-/// via the Candle ML framework. It's an optional feature that can be enabled
-/// with the `candle-embeddings` feature flag.
+/// via the Candle ML framework. It implements the EmbeddingProvider trait
+/// from rememnemosyne-core for pluggable embedding support.
+///
+/// Enable with the `candle-embeddings` feature flag.
 
+use async_trait::async_trait;
+use rememnemosyne_core::{
+    EmbeddingProvider, EmbeddingProviderType, EmbeddingRequest, EmbeddingResponse,
+    MemoryError, Result,
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -11,8 +18,8 @@ use std::path::PathBuf;
 use parking_lot::RwLock;
 #[cfg(feature = "candle-embeddings")]
 use std::collections::HashMap;
-
-use rememnemosyne_core::MemoryError;
+#[cfg(feature = "candle-embeddings")]
+use std::sync::Arc;
 
 /// Configuration for Candle embedder
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +78,7 @@ impl CandleEmbedder {
     }
 
     /// Load the model (async to allow downloading)
-    pub async fn load_model(&self) -> Result<(), MemoryError> {
+    pub async fn load_model(&self) -> Result<()> {
         use candle_core::DType;
         use hf_hub::{api::tokio::Api, Repo, RepoType};
         use tokenizers::Tokenizer;
@@ -146,7 +153,7 @@ impl CandleEmbedder {
     }
 
     /// Generate embedding for text
-    pub fn embed(&self, text: &str) -> Result<Vec<f32>, MemoryError> {
+    pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
         // Check cache
         {
             let cache = self.cache.read();
@@ -220,7 +227,7 @@ impl CandleEmbedder {
     }
 
     /// Batch embed multiple texts
-    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, MemoryError> {
+    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         texts.iter().map(|t| self.embed(t)).collect()
     }
 
@@ -240,6 +247,49 @@ impl CandleEmbedder {
     }
 }
 
+/// Implement EmbeddingProvider trait for CandleEmbedder
+#[cfg(feature = "candle-embeddings")]
+#[async_trait]
+impl EmbeddingProvider for CandleEmbedder {
+    async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
+        let text = request.text;
+        // Call sync embed method and wrap result
+        let embedding = self.embed(&text)?;
+
+        Ok(EmbeddingResponse {
+            embedding,
+            model: self.config.model_name.clone(),
+            token_count: None,
+        })
+    }
+
+    async fn embed_batch(&self, requests: Vec<EmbeddingRequest>) -> Result<Vec<EmbeddingResponse>> {
+        let mut responses = Vec::with_capacity(requests.len());
+        for req in requests {
+            let text = req.text;
+            let embedding = self.embed(&text)?;
+            responses.push(EmbeddingResponse {
+                embedding,
+                model: self.config.model_name.clone(),
+                token_count: None,
+            });
+        }
+        Ok(responses)
+    }
+
+    fn provider_type(&self) -> EmbeddingProviderType {
+        EmbeddingProviderType::Local
+    }
+
+    fn model_name(&self) -> &str {
+        &self.config.model_name
+    }
+
+    fn dimensions(&self) -> usize {
+        self.config.dimensions
+    }
+}
+
 /// Stub implementation when feature is not enabled
 #[cfg(not(feature = "candle-embeddings"))]
 pub struct CandleEmbedder {
@@ -256,21 +306,21 @@ impl CandleEmbedder {
         Self::new(CandleEmbedConfig::default())
     }
 
-    pub async fn load_model(&self) -> Result<(), MemoryError> {
+    pub async fn load_model(&self) -> Result<()> {
         Err(MemoryError::Cognitive(
             "Candle embeddings feature not enabled. Enable with --features candle-embeddings"
                 .to_string(),
         ))
     }
 
-    pub fn embed(&self, _text: &str) -> Result<Vec<f32>, MemoryError> {
+    pub fn embed(&self, _text: &str) -> Result<Vec<f32>> {
         Err(MemoryError::Cognitive(
             "Candle embeddings feature not enabled. Enable with --features candle-embeddings"
                 .to_string(),
         ))
     }
 
-    pub fn embed_batch(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, MemoryError> {
+    pub fn embed_batch(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>> {
         Err(MemoryError::Cognitive(
             "Candle embeddings feature not enabled. Enable with --features candle-embeddings"
                 .to_string(),

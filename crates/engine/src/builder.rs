@@ -184,8 +184,11 @@ impl RememnosyneEngine {
 
     /// Generate embedding for text
     async fn generate_embedding(&self, text: &str) -> Vec<f32> {
-        // Use the router's embedder to generate embedding
-        self.router.generate_embedding(text).await
+        // Use the router's embedding provider
+        self.router.generate_embedding(text).await.unwrap_or_else(|e| {
+            tracing::warn!("Embedding generation failed: {}", e);
+            vec![0.0; self.router.embedding_dimensions()]
+        })
     }
 
     /// Recall memories based on query

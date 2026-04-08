@@ -1,111 +1,113 @@
 /// LLM-Provider Agnostic Abstraction Layer
-/// 
+///
 /// This module provides a unified provider system that allows users to plug in
 /// their own AI APIs for embeddings, reasoning, and agent tasks.
-/// 
+///
 /// Three configurable layers:
 /// 1. Embedding Providers - OpenAI, Voyage, Cohere, Ollama, local, custom
 /// 2. Reasoning Providers - OpenAI, Anthropic, OpenRouter, local, custom
 /// 3. Agent Providers - Verification, analysis, report, simulation agents
-/// 
-/// This enables RISC-OSINT and other integrations to use their preferred LLM stack.
+///
+/// Embedding provider types are defined in rememnemosyne-core for cross-crate use.
 
-use async_trait::async_trait;
-use rememnemosyne_core::{MemoryError, Result};
+// Re-export embedding types from core
+pub use rememnemosyne_core::{
+    EmbeddingProvider, EmbeddingProviderConfig, EmbeddingProviderType,
+    EmbeddingRequest, EmbeddingResponse, HashEmbedder,
+};
+
+use rememnemosyne_core::MemoryError;
+use rememnemosyne_core::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// Need async_trait for trait definitions in this module
+use async_trait::async_trait;
+
 // ============================================================================
-// Layer 1: Embedding Providers
+// Embedding Provider Router
 // ============================================================================
 
-/// Embedding provider configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingProviderConfig {
-    /// Provider type
-    pub provider: EmbeddingProviderType,
-    /// Model name/identifier
-    pub model: String,
-    /// API key (for cloud providers)
-    pub api_key: Option<String>,
-    /// Base URL (for custom/local providers)
-    pub base_url: Option<String>,
-    /// Embedding dimensions
-    pub dimensions: usize,
-    /// Request timeout (seconds)
-    pub timeout_secs: u64,
-    /// Retry count on failure
-    pub max_retries: u32,
+/// EmbeddingProviderRouter manages the active embedding provider
+/// and provides a unified interface for embedding operations.
+pub struct EmbeddingProviderRouter {
+    /// The active embedding provider
+    provider: Arc<dyn EmbeddingProvider>,
 }
 
-impl Default for EmbeddingProviderConfig {
-    fn default() -> Self {
-        Self {
-            provider: EmbeddingProviderType::Local,
-            model: "all-MiniLM-L6-v2".to_string(),
-            api_key: None,
-            base_url: None,
-            dimensions: 384,
-            timeout_secs: 30,
-            max_retries: 3,
+impl EmbeddingProviderRouter {
+    /// Create a new router with a specific provider
+    pub fn new(provider: Arc<dyn EmbeddingProvider>) -> Self {
+        Self { provider }
+    }
+
+    /// Create with default hash-based embedder (fallback)
+    pub fn with_default() -> Self {
+        Self::new(Arc::new(HashEmbedder::default_embedder()))
+    }
+
+    /// Create with configured provider
+    pub fn from_config(config: &EmbeddingProviderConfig) -> Self {
+        match config.provider {
+            EmbeddingProviderType::Local => {
+                // Use hash embedder as default local
+                Self::new(Arc::new(HashEmbedder::new(config.dimensions)))
+            }
+            // Other providers would be implemented here
+            // For now, fall back to hash
+            _ => {
+                tracing::warn!(
+                    provider = ?config.provider,
+                    "Provider not yet implemented, using hash fallback"
+                );
+                Self::new(Arc::new(HashEmbedder::new(config.dimensions)))
+            }
         }
+    }
+
+    /// Generate embedding for text
+    pub async fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        let request = EmbeddingRequest::new(text);
+        let response = self.provider.embed(request).await?;
+        Ok(response.embedding)
+    }
+    
+    /// Clone the provider Arc for use across await boundaries
+    pub fn clone_provider(&self) -> Arc<dyn EmbeddingProvider> {
+        self.provider.clone()
+    }
+
+    /// Generate embeddings for multiple texts
+    pub async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        let requests: Vec<_> = texts.iter()
+            .map(|t| EmbeddingRequest::new(t))
+            .collect();
+        let responses = self.provider.embed_batch(requests).await?;
+        Ok(responses.into_iter().map(|r| r.embedding).collect())
+    }
+
+    /// Get provider info
+    pub fn provider_info(&self) -> ProviderInfo {
+        ProviderInfo {
+            provider_type: self.provider.provider_type(),
+            model: self.provider.model_name().to_string(),
+            dimensions: self.provider.dimensions(),
+        }
+    }
+
+    /// Replace the active provider
+    pub fn set_provider(&mut self, provider: Arc<dyn EmbeddingProvider>) {
+        self.provider = provider;
     }
 }
 
-/// Supported embedding providers
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum EmbeddingProviderType {
-    /// Local embedding (Candle/fastembed)
-    Local,
-    /// OpenAI embeddings (text-embedding-ada-002, etc.)
-    OpenAI,
-    /// Voyage AI embeddings
-    Voyage,
-    /// Cohere embeddings
-    Cohere,
-    /// Ollama local embeddings
-    Ollama,
-    /// Custom API endpoint
-    Custom,
-}
-
-/// Embedding request
-#[derive(Debug, Clone)]
-pub struct EmbeddingRequest {
-    /// Text to embed
-    pub text: String,
-    /// Optional model override
-    pub model: Option<String>,
-    /// Optional dimensions override
-    pub dimensions: Option<usize>,
-}
-
-/// Embedding response
-#[derive(Debug, Clone)]
-pub struct EmbeddingResponse {
-    /// Embedding vector
-    pub embedding: Vec<f32>,
-    /// Model used
+/// Provider information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderInfo {
+    pub provider_type: EmbeddingProviderType,
     pub model: String,
-    /// Token usage (if available)
-    pub token_count: Option<usize>,
-}
-
-/// Embedding provider trait
-#[async_trait]
-pub trait EmbeddingProvider: Send + Sync {
-    /// Generate embedding for a single text
-    async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse>;
-    
-    /// Generate embeddings for multiple texts
-    async fn embed_batch(&self, requests: Vec<EmbeddingRequest>) -> Result<Vec<EmbeddingResponse>>;
-    
-    /// Get provider name
-    fn provider_name(&self) -> &str;
-    
-    /// Get model name
-    fn model_name(&self) -> &str;
+    pub dimensions: usize,
 }
 
 // ============================================================================
@@ -403,27 +405,24 @@ impl StubEmbeddingProvider {
 #[async_trait]
 impl EmbeddingProvider for StubEmbeddingProvider {
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
+        let _ = request;
         Ok(EmbeddingResponse {
             embedding: vec![0.0; self.dimensions],
             model: "stub".to_string(),
             token_count: None,
         })
     }
-    
-    async fn embed_batch(&self, requests: Vec<EmbeddingRequest>) -> Result<Vec<EmbeddingResponse>> {
-        let mut responses = Vec::new();
-        for req in requests {
-            responses.push(self.embed(req).await?);
-        }
-        Ok(responses)
+
+    fn provider_type(&self) -> EmbeddingProviderType {
+        EmbeddingProviderType::Custom
     }
-    
-    fn provider_name(&self) -> &str {
-        "stub"
-    }
-    
+
     fn model_name(&self) -> &str {
         "stub-model"
+    }
+
+    fn dimensions(&self) -> usize {
+        self.dimensions
     }
 }
 

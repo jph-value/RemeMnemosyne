@@ -17,8 +17,6 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
-
-# Optional ML embeddings
 candle-core = { workspace = true, optional = true }
 candle-transformers = { workspace = true, optional = true }
 candle-nn = { workspace = true, optional = true }
