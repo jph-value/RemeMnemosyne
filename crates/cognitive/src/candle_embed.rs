@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[cfg(feature = "candle-embeddings")]
+use candle_core::{Device, Tensor, DType};
+#[cfg(feature = "candle-embeddings")]
 use parking_lot::RwLock;
 #[cfg(feature = "candle-embeddings")]
 use std::collections::HashMap;
@@ -36,12 +38,16 @@ impl Default for CandleEmbedConfig {
     }
 }
 
-/// Real ML embedder using Candle framework
+/// Real ML embedder using Candle framework with ONNX inference
 #[cfg(feature = "candle-embeddings")]
 pub struct CandleEmbedder {
     config: CandleEmbedConfig,
     /// Tokenizer
     tokenizer: Arc<RwLock<Option<tokenizers::Tokenizer>>>,
+    /// ONNX model data (loaded once, reused for inference)
+    model: Arc<RwLock<Option<candle_onnx::ModelProto>>>,
+    /// Device for tensor operations
+    device: Device,
     /// Cache for computed embeddings
     cache: RwLock<HashMap<String, Vec<f32>>>,
     /// Whether the model is loaded
@@ -50,93 +56,72 @@ pub struct CandleEmbedder {
 
 #[cfg(feature = "candle-embeddings")]
 impl CandleEmbedder {
-    /// Create a new Candle embedder with config
     pub fn new(config: CandleEmbedConfig) -> Self {
         Self {
             config,
             tokenizer: Arc::new(RwLock::new(None)),
+            model: Arc::new(RwLock::new(None)),
+            device: Device::Cpu,
             cache: RwLock::new(HashMap::new()),
             model_loaded: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    /// Create with default config
     pub fn default_embedder() -> Self {
         Self::new(CandleEmbedConfig::default())
     }
 
-    /// Load the model (async to allow downloading)
+    /// Load the model and tokenizer from HuggingFace or local path
     pub async fn load_model(&self) -> Result<()> {
-        use candle_core::DType;
+        use candle_onnx::read_file;
         use hf_hub::{api::tokio::Api, Repo, RepoType};
         use tokenizers::Tokenizer;
 
-        // Check if already loaded
         if self.model_loaded.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
 
-        // Get model path
-        let model_path = if let Some(local_path) = &self.config.local_model_path {
-            local_path.clone()
+        let (model_path, tokenizer_path) = if let Some(local_path) = &self.config.local_model_path {
+            (local_path.join("onnx/model.onnx"), local_path.join("tokenizer.json"))
         } else {
-            // Download from HuggingFace
             let api = Api::new().map_err(|e| {
                 MemoryError::Cognitive(format!("Failed to initialize HuggingFace API: {}", e))
             })?;
-
             let repo = Repo::with_revision(
                 format!("sentence-transformers/{}", self.config.model_name),
                 RepoType::Model,
                 "main".to_string(),
             );
+            let api_repo = api.repo(repo);
 
-            let model_file =
-                api.repo(repo).get("model.onnx").await.map_err(|e| {
-                    MemoryError::Cognitive(format!("Failed to download model: {}", e))
-                })?;
-
-            model_file
-        };
-
-        // Load tokenizer
-        let tokenizer_path = if let Some(local_path) = &self.config.local_model_path {
-            local_path.join("tokenizer.json")
-        } else {
-            let api = Api::new().map_err(|e| {
-                MemoryError::Cognitive(format!("Failed to initialize HuggingFace API: {}", e))
+            let model_file = api_repo.get("onnx/model.onnx").await.map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to download ONNX model: {}", e))
             })?;
-
-            let repo = Repo::with_revision(
-                format!("sentence-transformers/{}", self.config.model_name),
-                RepoType::Model,
-                "main".to_string(),
-            );
-
-            api.repo(repo).get("tokenizer.json").await.map_err(|e| {
+            let tokenizer_file = api_repo.get("tokenizer.json").await.map_err(|e| {
                 MemoryError::Cognitive(format!("Failed to download tokenizer: {}", e))
-            })?
+            })?;
+            (model_file, tokenizer_file)
         };
 
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| MemoryError::Cognitive(format!("Failed to load tokenizer: {}", e)))?;
-
         *self.tokenizer.write() = Some(tokenizer);
-        self.model_loaded
-            .store(true, std::sync::atomic::Ordering::Relaxed);
 
+        let model_proto = read_file(&model_path)
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to load ONNX model: {}", e)))?;
+        *self.model.write() = Some(model_proto);
+
+        self.model_loaded.store(true, std::sync::atomic::Ordering::Relaxed);
         tracing::info!(
             model = %self.config.model_name,
             dimensions = self.config.dimensions,
-            "Candle embedder model loaded"
+            "Candle embedder model loaded (ONNX inference)"
         );
-
         Ok(())
     }
 
-    /// Generate embedding for text
+    /// Generate embedding for text using real ONNX inference
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        // Check cache
         {
             let cache = self.cache.read();
             if let Some(cached) = cache.get(text) {
@@ -144,7 +129,6 @@ impl CandleEmbedder {
             }
         }
 
-        // Check if model is loaded
         if !self.model_loaded.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(MemoryError::Cognitive(
                 "Model not loaded. Call load_model() first.".to_string(),
@@ -156,77 +140,130 @@ impl CandleEmbedder {
             .as_ref()
             .ok_or_else(|| MemoryError::Cognitive("Tokenizer not initialized".to_string()))?;
 
-        // Tokenize
+        let model = self.model.read();
+        let model = model
+            .as_ref()
+            .ok_or_else(|| MemoryError::Cognitive("ONNX model not loaded".to_string()))?;
+
         let encoding = tokenizer
             .encode(text, true)
             .map_err(|e| MemoryError::Cognitive(format!("Tokenization failed: {}", e)))?;
 
-        // For now, use a simplified approach
-        // In a full implementation, you'd run the ONNX model through Candle
-        // This is a placeholder that shows the structure
-        let embedding = self.run_inference(&encoding)?;
+        let embedding = self.run_inference(model, &encoding)?;
 
-        // Cache the result
         {
             let mut cache = self.cache.write();
             if cache.len() < self.config.cache_size {
                 cache.insert(text.to_string(), embedding.clone());
             }
         }
-
         Ok(embedding)
     }
 
-    /// Run inference (simplified - would use Candle ONNX runtime in production)
-    fn run_inference(&self, encoding: &tokenizers::Encoding) -> Result<Vec<f32>, MemoryError> {
-        // This is a placeholder for the actual Candle inference
-        // In production, you would:
-        // 1. Load the ONNX model with candle_onnx
-        // 2. Create tensors from encoding
-        // 3. Run forward pass
-        // 4. Extract embeddings
+    /// Run real ONNX inference with MEAN pooling and L2 normalization
+    fn run_inference(
+        &self,
+        model: &candle_onnx::ModelProto,
+        encoding: &tokenizers::Encoding,
+    ) -> Result<Vec<f32>> {
+        let token_ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
+        let attention_mask: Vec<i64> = encoding.get_attention_mask().iter().map(|&x| x as i64).collect();
+        let token_type_ids: Vec<i64> = encoding.get_type_ids().iter().map(|&x| x as i64).collect();
 
-        // For now, return a simplified embedding based on token IDs
-        let token_ids = encoding.get_ids();
-        let mut embedding = vec![0.0f32; self.config.dimensions];
+        let seq_len = token_ids.len();
+        let input_ids = Tensor::from_vec(token_ids, (1usize, seq_len), &self.device)
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to create input_ids tensor: {}", e)))?;
+        let attention_mask = Tensor::from_vec(attention_mask, (1usize, seq_len), &self.device)
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to create attention_mask tensor: {}", e)))?;
+        let token_type_ids = Tensor::from_vec(token_type_ids, (1usize, seq_len), &self.device)
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to create token_type_ids tensor: {}", e)))?;
 
-        // Simple hash-based fallback for demonstration
-        for (i, &token_id) in token_ids.iter().enumerate() {
-            let idx = (token_id as usize) % self.config.dimensions;
-            embedding[idx] += (token_id as f32).sin();
-        }
+        let mut inputs = HashMap::new();
+        inputs.insert("input_ids".to_string(), input_ids);
+        inputs.insert("attention_mask".to_string(), attention_mask);
+        inputs.insert("token_type_ids".to_string(), token_type_ids);
 
-        if self.config.normalize {
-            let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-            if norm > 1e-10 {
-                for val in embedding.iter_mut() {
-                    *val /= norm;
-                }
-            }
-        }
+        let outputs = candle_onnx::simple_eval(model, inputs)
+            .map_err(|e| MemoryError::Cognitive(format!("ONNX inference failed: {}", e)))?;
 
-        Ok(embedding)
+        let hidden_states = outputs.get("last_hidden_state")
+            .ok_or_else(|| MemoryError::Cognitive("ONNX model missing 'last_hidden_state' output".to_string()))?;
+
+        let hidden_states = hidden_states.to_dtype(DType::F32)
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to convert hidden states to F32: {}", e)))?;
+
+        let pooled = mean_pool(&hidden_states, &attention_mask)
+            .map_err(|e| MemoryError::Cognitive(format!("MEAN pooling failed: {}", e)))?;
+
+        let embedding = if self.config.normalize {
+            l2_normalize(&pooled)
+                .map_err(|e| MemoryError::Cognitive(format!("L2 normalization failed: {}", e)))?
+        } else {
+            pooled
+        };
+
+        let embedding_vec = embedding.to_vec1::<f32>()
+            .map_err(|e| MemoryError::Cognitive(format!("Failed to extract embedding vector: {}", e)))?;
+
+        Ok(embedding_vec)
     }
 
-    /// Batch embed multiple texts
     pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         texts.iter().map(|t| self.embed(t)).collect()
     }
 
-    /// Clear the cache
     pub fn clear_cache(&self) {
         self.cache.write().clear();
     }
 
-    /// Check if model is loaded
     pub fn is_loaded(&self) -> bool {
         self.model_loaded.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Get config
     pub fn config(&self) -> &CandleEmbedConfig {
         &self.config
     }
+}
+
+/// MEAN pooling: sum(hidden * mask) / sum(mask)
+/// hidden_states: [1, seq_len, hidden_dim]
+/// attention_mask: [1, seq_len]
+#[cfg(feature = "candle-embeddings")]
+fn mean_pool(hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor, MemoryError> {
+    let mask = attention_mask
+        .unsqueeze(2)
+        .and_then(|m| m.to_dtype(DType::F32))
+        .map_err(|e| MemoryError::Cognitive(format!("Mask expansion failed: {}", e)))?;
+
+    let masked = hidden_states
+        .mul(&mask)
+        .map_err(|e| MemoryError::Cognitive(format!("Mask application failed: {}", e)))?;
+
+    let sum = masked
+        .sum(1)
+        .map_err(|e| MemoryError::Cognitive(format!("Sum pooling failed: {}", e)))?;
+
+    let count = mask
+        .sum(1)
+        .and_then(|c| c.clamp(1e-9, f64::MAX))
+        .map_err(|e| MemoryError::Cognitive(format!("Count computation failed: {}", e)))?;
+
+    sum.broadcast_div(&count)
+        .map_err(|e| MemoryError::Cognitive(format!("Division failed: {}", e)))
+}
+
+/// L2 normalize: x / ||x||
+#[cfg(feature = "candle-embeddings")]
+fn l2_normalize(embedding: &Tensor) -> Result<Tensor, MemoryError> {
+    let norm = embedding
+        .sqr()
+        .and_then(|s| s.sum_keepdim(1))
+        .and_then(|s| s.sqrt())
+        .map_err(|e| MemoryError::Cognitive(format!("Norm computation failed: {}", e)))?;
+
+    embedding
+        .broadcast_div(&norm)
+        .map_err(|e| MemoryError::Cognitive(format!("Normalization failed: {}", e)))
 }
 
 /// Implement EmbeddingProvider trait for CandleEmbedder
@@ -234,10 +271,7 @@ impl CandleEmbedder {
 #[async_trait]
 impl EmbeddingProvider for CandleEmbedder {
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
-        let text = request.text;
-        // Call sync embed method and wrap result
-        let embedding = self.embed(&text)?;
-
+        let embedding = self.embed(&request.text)?;
         Ok(EmbeddingResponse {
             embedding,
             model: self.config.model_name.clone(),
@@ -248,8 +282,7 @@ impl EmbeddingProvider for CandleEmbedder {
     async fn embed_batch(&self, requests: Vec<EmbeddingRequest>) -> Result<Vec<EmbeddingResponse>> {
         let mut responses = Vec::with_capacity(requests.len());
         for req in requests {
-            let text = req.text;
-            let embedding = self.embed(&text)?;
+            let embedding = self.embed(&req.text)?;
             responses.push(EmbeddingResponse {
                 embedding,
                 model: self.config.model_name.clone(),
@@ -272,7 +305,7 @@ impl EmbeddingProvider for CandleEmbedder {
     }
 }
 
-/// Stub implementation when feature is not enabled
+/// Stub when feature not enabled
 #[cfg(not(feature = "candle-embeddings"))]
 pub struct CandleEmbedder {
     config: CandleEmbedConfig,
@@ -310,14 +343,8 @@ impl CandleEmbedder {
     }
 
     pub fn clear_cache(&self) {}
-
-    pub fn is_loaded(&self) -> bool {
-        false
-    }
-
-    pub fn config(&self) -> &CandleEmbedConfig {
-        &self.config
-    }
+    pub fn is_loaded(&self) -> bool { false }
+    pub fn config(&self) -> &CandleEmbedConfig { &self.config }
 }
 
 #[cfg(test)]
@@ -335,7 +362,6 @@ mod tests {
     #[test]
     fn test_candle_embedder_creation() {
         let embedder = CandleEmbedder::default_embedder();
-        // Should not panic, model not loaded yet
         assert!(!embedder.is_loaded());
     }
 

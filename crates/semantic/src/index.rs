@@ -307,6 +307,32 @@ impl HNSWIndex {
             dot / (norm_a * norm_b)
         }
     }
+
+    /// Serialize HNSW index to bytes for persistence
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        bincode::serialize(self)
+            .map_err(|e| rememnemosyne_core::MemoryError::Serialization(e.to_string()))
+    }
+
+    /// Deserialize HNSW index from bytes
+    pub fn deserialize(data: &[u8]) -> Result<Self> {
+        bincode::deserialize(data)
+            .map_err(|e| rememnemosyne_core::MemoryError::Serialization(e.to_string()))
+    }
+
+    /// Save HNSW index to a file
+    pub fn save_to_file(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let data = self
+            .serialize()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        std::fs::write(path, data)
+    }
+
+    /// Load HNSW index from a file
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
+        let data = std::fs::read(path).map_err(rememnemosyne_core::MemoryError::Io)?;
+        Self::deserialize(&data)
+    }
 }
 
 #[derive(Debug, Clone)]

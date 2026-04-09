@@ -12,6 +12,105 @@ pub type EntityId = Uuid;
 /// Unique identifier for memory sessions
 pub type SessionId = Uuid;
 
+/// Input for creating a new memory (used by batch ingestion API)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryInput {
+    /// Content to store
+    pub content: String,
+    /// Summary (auto-generated if empty)
+    pub summary: String,
+    /// Memory type
+    pub memory_type: MemoryType,
+    /// Trigger that created this memory
+    pub trigger: MemoryTrigger,
+    /// Importance level
+    pub importance: Importance,
+    /// Tags
+    pub tags: Vec<String>,
+    /// Agent namespace
+    pub namespace: Option<String>,
+    /// Agent ID that created this
+    pub agent_id: Option<String>,
+    /// Confidence score
+    pub confidence: Option<f32>,
+    /// Source event IDs
+    pub source_events: Vec<Uuid>,
+    /// Tier classification
+    pub tier: Option<u8>,
+    /// Session ID
+    pub session_id: Option<SessionId>,
+}
+
+impl MemoryInput {
+    pub fn new(content: impl Into<String>, trigger: MemoryTrigger) -> Self {
+        let content = content.into();
+        Self {
+            content: content.clone(),
+            summary: content.chars().take(100).collect(),
+            memory_type: MemoryType::Semantic,
+            trigger,
+            importance: Importance::Medium,
+            tags: Vec::new(),
+            namespace: None,
+            agent_id: None,
+            confidence: None,
+            source_events: Vec::new(),
+            tier: None,
+            session_id: None,
+        }
+    }
+
+    pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = summary.into();
+        self
+    }
+
+    pub fn with_type(mut self, memory_type: MemoryType) -> Self {
+        self.memory_type = memory_type;
+        self
+    }
+
+    pub fn with_importance(mut self, importance: Importance) -> Self {
+        self.importance = importance;
+        self
+    }
+
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self
+    }
+
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+
+    pub fn with_agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.agent_id = Some(agent_id.into());
+        self
+    }
+
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = Some(confidence);
+        self
+    }
+
+    pub fn with_source_events(mut self, events: Vec<Uuid>) -> Self {
+        self.source_events = events;
+        self
+    }
+
+    pub fn with_tier(mut self, tier: u8) -> Self {
+        self.tier = Some(tier);
+        self
+    }
+
+    pub fn with_session(mut self, session_id: SessionId) -> Self {
+        self.session_id = Some(session_id);
+        self
+    }
+}
+
 /// Memory type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MemoryType {
@@ -19,6 +118,13 @@ pub enum MemoryType {
     Episodic,
     Graph,
     Temporal,
+    // RISC.OSINT domain-specific types
+    EventClassification,
+    InfrastructureGap,
+    GapDocumentation,
+    NarrativeThread,
+    EvidenceChain,
+    CounterNarrative,
 }
 
 impl std::fmt::Display for MemoryType {
@@ -28,6 +134,12 @@ impl std::fmt::Display for MemoryType {
             MemoryType::Episodic => write!(f, "episodic"),
             MemoryType::Graph => write!(f, "graph"),
             MemoryType::Temporal => write!(f, "temporal"),
+            MemoryType::EventClassification => write!(f, "event_classification"),
+            MemoryType::InfrastructureGap => write!(f, "infrastructure_gap"),
+            MemoryType::GapDocumentation => write!(f, "gap_documentation"),
+            MemoryType::NarrativeThread => write!(f, "narrative_thread"),
+            MemoryType::EvidenceChain => write!(f, "evidence_chain"),
+            MemoryType::CounterNarrative => write!(f, "counter_narrative"),
         }
     }
 }
@@ -145,6 +257,19 @@ pub struct MemoryArtifact {
     pub source_ref: Option<String>,
     /// Spatial location in Memory Palace (wing/hall/room)
     pub palace_location: Option<PalaceLocation>,
+    // ========================================================================
+    // RISC.OSINT Agent Namespace & Metadata
+    // ========================================================================
+    /// Agent namespace for isolation (e.g. "categorizer", "narrative", "infra_gap")
+    pub namespace: Option<String>,
+    /// Confidence score for agent-generated memories (0.0-1.0)
+    pub confidence: Option<f32>,
+    /// Source event IDs that contributed to this memory
+    pub source_events: Vec<Uuid>,
+    /// Agent ID that created this memory
+    pub agent_id: Option<String>,
+    /// Tier classification (T1/T1.5/T2/T3)
+    pub tier: Option<u8>,
 }
 
 /// Spatial location in the Memory Palace
@@ -200,6 +325,11 @@ impl MemoryArtifact {
             is_summary: false,
             source_ref: None,
             palace_location: None,
+            namespace: None,
+            confidence: None,
+            source_events: Vec::new(),
+            agent_id: None,
+            tier: None,
         }
     }
 
@@ -258,6 +388,36 @@ impl MemoryArtifact {
     /// Set spatial location in Memory Palace
     pub fn with_palace_location(mut self, location: PalaceLocation) -> Self {
         self.palace_location = Some(location);
+        self
+    }
+
+    /// Set agent namespace
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+
+    /// Set confidence score
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = Some(confidence);
+        self
+    }
+
+    /// Set source events
+    pub fn with_source_events(mut self, events: Vec<Uuid>) -> Self {
+        self.source_events = events;
+        self
+    }
+
+    /// Set agent ID
+    pub fn with_agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.agent_id = Some(agent_id.into());
+        self
+    }
+
+    /// Set tier classification
+    pub fn with_tier(mut self, tier: u8) -> Self {
+        self.tier = Some(tier);
         self
     }
 

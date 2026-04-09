@@ -27,7 +27,7 @@ pub trait AgentMemory: Send + Sync {
     /// Get memory by ID
     async fn get_memory(&self, id: &MemoryId) -> Result<Option<MemoryArtifact>>;
 
-    /// Delete memory
+    /// Delete memory from all stores
     async fn forget(&self, id: &MemoryId) -> Result<bool>;
 
     /// Search entities
@@ -70,11 +70,24 @@ impl AgentMemory for RememnosyneEngine {
     }
 
     async fn forget(&self, id: &MemoryId) -> Result<bool> {
-        // Delete from semantic
-        let _ = self.router.semantic.delete(id).await?;
-        // Delete from episodic
-        let _ = self.router.episodic.delete(id).await?;
-        Ok(true)
+        let mut errors = Vec::new();
+
+        if let Err(e) = self.router.semantic.delete(id).await {
+            errors.push(format!("semantic: {e}"));
+        }
+        if let Err(e) = self.router.episodic.delete(id).await {
+            errors.push(format!("episodic: {e}"));
+        }
+
+        self.router.graph.delete_entity_by_memory_id(id).await;
+        self.router.temporal.delete_events_by_memory_id(id).await;
+
+        if errors.is_empty() {
+            Ok(true)
+        } else {
+            tracing::warn!(memory_id = %id, errors = ?errors, "forget() had partial failures");
+            Err(MemoryError::Storage(format!("Partial delete failures: {}", errors.join(", "))))
+        }
     }
 
     async fn search_entities(
@@ -82,7 +95,7 @@ impl AgentMemory for RememnosyneEngine {
         query: &str,
         limit: usize,
     ) -> Vec<rememnemosyne_graph::entity::GraphEntity> {
-        self.search_entities(query, limit).await
+        self.router.search_entities(query, limit).await
     }
 
     async fn get_context(&self, query: &str, max_tokens: usize) -> Result<String> {
@@ -95,16 +108,30 @@ impl AgentMemory for RememnosyneEngine {
 
 /// Streaming memory operations for real-time processing
 pub struct StreamingMemoryHandler {
-    #[allow(dead_code)]
-    engine: RememnosyneEngine,
+    engine: std::sync::Arc<RememnosyneEngine>,
     buffer: Vec<String>,
     buffer_size: usize,
+}
+
+impl Drop for StreamingMemoryHandler {
+    fn drop(&mut self) {
+        if !self.buffer.is_empty() {
+            let combined = self.buffer.join(" ");
+            let summary = combined.chars().take(100).collect::<String>() + "...";
+            let engine = self.engine.clone();
+            tokio::spawn(async move {
+                if let Err(e) = engine.remember(&combined, &summary, MemoryTrigger::SystemOutput).await {
+                    tracing::error!(error = %e, "StreamingMemoryHandler: failed to flush buffer on drop");
+                }
+            });
+        }
+    }
 }
 
 impl StreamingMemoryHandler {
     pub fn new(engine: RememnosyneEngine, buffer_size: usize) -> Self {
         Self {
-            engine,
+            engine: std::sync::Arc::new(engine),
             buffer: Vec::new(),
             buffer_size,
         }
@@ -113,8 +140,6 @@ impl StreamingMemoryHandler {
     /// Add text to buffer (e.g., from streaming LLM output)
     pub fn add_text(&mut self, text: &str) {
         self.buffer.push(text.to_string());
-
-        // Auto-flush if buffer is full
         if self.buffer.len() >= self.buffer_size {
             self.flush();
         }
@@ -125,14 +150,26 @@ impl StreamingMemoryHandler {
         if self.buffer.is_empty() {
             return;
         }
-
         let combined = self.buffer.join(" ");
-        let _summary = combined.chars().take(100).collect::<String>() + "...";
+        let summary = combined.chars().take(100).collect::<String>() + "...";
+        let engine = self.engine.clone();
+        tokio::spawn(async move {
+            if let Err(e) = engine.remember(&combined, &summary, MemoryTrigger::SystemOutput).await {
+                tracing::error!(error = %e, "StreamingMemoryHandler: failed to store memory");
+            }
+        });
+        self.buffer.clear();
+    }
 
-        // TODO: Spawn async task to store using self.engine
-        // Currently requires async context - store would be called as:
-        // self.engine.remember(&combined, &_summary, MemoryTrigger::SystemOutput)
-
+    /// Explicit shutdown — flushes remaining buffer
+    pub async fn shutdown(mut self) {
+        if !self.buffer.is_empty() {
+            let combined = self.buffer.join(" ");
+            let summary = combined.chars().take(100).collect::<String>() + "...";
+            if let Err(e) = self.engine.remember(&combined, &summary, MemoryTrigger::SystemOutput).await {
+                tracing::error!(error = %e, "StreamingMemoryHandler: failed to store on shutdown");
+            }
+        }
         self.buffer.clear();
     }
 
@@ -218,15 +255,27 @@ impl BatchMemoryOperations {
                         ),
                     }
                 }
-                MemoryOperation::Delete(id) => match engine.router.semantic.delete(id).await {
-                    Ok(_) => {
-                        MemoryOperationResult::success(*id, start.elapsed().as_millis() as u64)
+                MemoryOperation::Delete(id) => {
+                    let mut success = true;
+                    if let Err(e) = engine.router.semantic.delete(id).await {
+                        tracing::warn!(error = %e, "Batch delete failed (semantic)");
+                        success = false;
                     }
-                    Err(e) => MemoryOperationResult::failure(
-                        e.to_string(),
-                        start.elapsed().as_millis() as u64,
-                    ),
-                },
+                    if let Err(e) = engine.router.episodic.delete(id).await {
+                        tracing::warn!(error = %e, "Batch delete failed (episodic)");
+                        success = false;
+                    }
+                    engine.router.graph.delete_entity_by_memory_id(id).await;
+                    engine.router.temporal.delete_events_by_memory_id(id).await;
+                    if success {
+                        MemoryOperationResult::success(*id, start.elapsed().as_millis() as u64)
+                    } else {
+                        MemoryOperationResult::failure(
+                            "Partial delete failure".into(),
+                            start.elapsed().as_millis() as u64,
+                        )
+                    }
+                }
                 MemoryOperation::Update(artifact) => {
                     match engine.router.semantic.update(artifact.clone()).await {
                         Ok(_) => MemoryOperationResult::success(

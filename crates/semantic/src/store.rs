@@ -72,6 +72,71 @@ impl SemanticMemoryStore {
         }
     }
 
+    /// Check if a memory matches all query filters
+    fn matches_query(&self, memory: &MemoryArtifact, query: &MemoryQuery) -> bool {
+        if let Some(mem_type) = query.memory_type {
+            if memory.memory_type != mem_type {
+                return false;
+            }
+        }
+        if let Some(min_imp) = query.min_importance {
+            if memory.importance < min_imp {
+                return false;
+            }
+        }
+        if let Some(ref time_range) = query.time_range {
+            if memory.timestamp < time_range.0 || memory.timestamp > time_range.1 {
+                return false;
+            }
+        }
+        if let Some(session_id) = query.session_id {
+            if memory.session_id != Some(session_id) {
+                return false;
+            }
+        }
+        if let Some(ref tags) = query.tags {
+            if !tags.iter().any(|t| memory.tags.contains(t)) {
+                return false;
+            }
+        }
+        // RISC.OSINT namespace filtering
+        if let Some(ref ns) = query.namespace {
+            if memory.namespace.as_deref() != Some(ns) {
+                return false;
+            }
+        }
+        if let Some(min_conf) = query.min_confidence {
+            if memory.confidence.is_none_or(|c| c < min_conf) {
+                return false;
+            }
+        }
+        if let Some(ref agent) = query.agent_id {
+            if memory.agent_id.as_deref() != Some(agent) {
+                return false;
+            }
+        }
+        if let Some(tier) = query.tier {
+            if memory.tier != Some(tier) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Apply text-based and sorting filters to a set of memories
+    fn apply_query_filters(
+        &self,
+        memories: Vec<MemoryArtifact>,
+        query: &MemoryQuery,
+    ) -> Vec<MemoryArtifact> {
+        let mut filtered: Vec<MemoryArtifact> = memories
+            .into_iter()
+            .filter(|m| self.matches_query(m, query))
+            .collect();
+        filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        filtered
+    }
+
     /// Initialize the quantizer with training data
     pub async fn train_quantizer(&self, training_data: &[Vec<f32>]) -> Result<()> {
         if training_data.is_empty() {
@@ -199,8 +264,15 @@ impl SemanticMemoryStore {
 
     /// Get quantizer configuration
     pub fn quantizer_config(&self) -> Option<TurboQuantConfig> {
-        // Synchronous check
-        None // Would need async or different design
+        Some(TurboQuantConfig {
+            dimensions: self.config.dimensions,
+            bits: self.config.quantization_bits,
+            num_subquantizers: self.config.dimensions / 16,
+            seed: 42,
+            method: crate::turboquant::QuantizationMethod::PQ,
+            num_clusters: 256,
+            iterations: 50,
+        })
     }
 
     async fn store_internal(&self, artifact: MemoryArtifact) -> Result<MemoryId> {
@@ -245,6 +317,42 @@ impl SemanticMemoryStore {
 
         Ok(id)
     }
+
+    /// Save HNSW index to disk for fast startup
+    pub async fn save_hnsw_index(&self, path: &std::path::Path) -> Result<()> {
+        let hnsw = self.hnsw_index.read().await;
+        hnsw.save_to_file(path)
+            .map_err(MemoryError::Io)?;
+        tracing::info!(path = ?path, "HNSW index saved to disk");
+        Ok(())
+    }
+
+    /// Load HNSW index from disk if available
+    pub async fn load_hnsw_index(&self, path: &std::path::Path) -> bool {
+        if path.exists() {
+            match HNSWIndex::load_from_file(path) {
+                Ok(index) => {
+                    if index.dimension == self.config.dimensions {
+                        let mut hnsw = self.hnsw_index.write().await;
+                        *hnsw = index;
+                        tracing::info!(path = ?path, "HNSW index loaded from disk");
+                        return true;
+                    } else {
+                        tracing::warn!("HNSW index dimension mismatch, rebuilding");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to load HNSW index, rebuilding");
+                }
+            }
+        }
+        false
+    }
+
+    /// Get the number of new memories since last index save
+    pub async fn get_unindexed_count(&self, last_save_count: usize) -> usize {
+        self.memories.len().saturating_sub(last_save_count)
+    }
 }
 
 #[async_trait]
@@ -268,56 +376,22 @@ impl MemoryStore for SemanticMemoryStore {
             let k = query.limit.unwrap_or(10);
             let threshold = query.min_relevance.unwrap_or(0.0);
             let results = self.search_similar(embedding, k, threshold).await?;
-            return Ok(results.into_iter().map(|(m, _)| m).collect());
+            let filtered = self.apply_query_filters(results.into_iter().map(|(m, _)| m).collect(), query);
+            return Ok(filtered);
         }
 
         // Otherwise, filter stored memories
         let limit = query.limit.unwrap_or(usize::MAX);
-        let mut results: Vec<MemoryArtifact> = self
+        let results: Vec<MemoryArtifact> = self
             .memories
             .iter()
             .map(|entry| entry.value().clone())
-            .filter(|m| {
-                // Apply filters
-                if let Some(mem_type) = query.memory_type {
-                    if m.memory_type != mem_type {
-                        return false;
-                    }
-                }
-
-                if let Some(min_imp) = query.min_importance {
-                    if m.importance < min_imp {
-                        return false;
-                    }
-                }
-
-                if let Some(ref time_range) = query.time_range {
-                    if m.timestamp < time_range.0 || m.timestamp > time_range.1 {
-                        return false;
-                    }
-                }
-
-                if let Some(session_id) = query.session_id {
-                    if m.session_id != Some(session_id) {
-                        return false;
-                    }
-                }
-
-                if let Some(ref tags) = query.tags {
-                    if !tags.iter().any(|t| m.tags.contains(t)) {
-                        return false;
-                    }
-                }
-
-                true
-            })
+            .filter(|m| self.matches_query(m, query))
             .collect();
 
-        // Sort by timestamp (most recent first)
-        results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        results.truncate(limit);
-
-        Ok(results)
+        let mut filtered = self.apply_query_filters(results, query);
+        filtered.truncate(limit);
+        Ok(filtered)
     }
 
     async fn delete(&self, id: &MemoryId) -> Result<bool> {
@@ -363,5 +437,42 @@ impl MemoryStore for SemanticMemoryStore {
 
     async fn list_ids(&self) -> Result<Vec<MemoryId>> {
         Ok(self.memories.iter().map(|entry| *entry.key()).collect())
+    }
+}
+
+#[async_trait]
+impl VectorMemoryStore for SemanticMemoryStore {
+    async fn store_with_embedding(
+        &self,
+        artifact: MemoryArtifact,
+        embedding: Vec<f32>,
+    ) -> Result<MemoryId> {
+        self.store_with_embedding(artifact, embedding).await
+    }
+
+    async fn search_similar(
+        &self,
+        query_vector: &[f32],
+        k: usize,
+        threshold: f32,
+    ) -> Result<Vec<(MemoryArtifact, f32)>> {
+        self.search_similar(query_vector, k, threshold).await
+    }
+
+    async fn search_quantized(
+        &self,
+        query_vector: &[f32],
+        k: usize,
+    ) -> Result<Vec<(MemoryArtifact, f32)>> {
+        self.search_quantized(query_vector, k).await
+    }
+
+    fn quantizer_config(&self) -> QuantizerConfig {
+        QuantizerConfig {
+            dimensions: self.config.dimensions,
+            bits: self.config.quantization_bits,
+            subquantizers: self.config.dimensions / 16,
+            seed: 42,
+        }
     }
 }

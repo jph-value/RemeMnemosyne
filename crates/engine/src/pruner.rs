@@ -94,7 +94,7 @@ impl MemoryPruner {
         Self { config, archive }
     }
 
-    pub fn default() -> Self {
+    pub fn try_default() -> Self {
         Self::new(PrunerConfig::default())
     }
 
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_should_keep_critical() {
-        let pruner = MemoryPruner::default();
+        let pruner = MemoryPruner::try_default();
         let memory = MemoryArtifact::new(
             rememnemosyne_core::MemoryType::Semantic,
             "test",
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_should_prune_old_low_importance() {
-        let mut pruner = MemoryPruner::default();
+        let mut pruner = MemoryPruner::try_default();
         pruner.config.max_age_days = 1;
         pruner.config.min_access_count = 0;
         pruner.config.min_importance = 0.5;
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_find_duplicates() {
-        let pruner = MemoryPruner::default();
+        let pruner = MemoryPruner::try_default();
         let emb = vec![0.1; 1536];
         let memories = vec![
             MemoryArtifact::new(

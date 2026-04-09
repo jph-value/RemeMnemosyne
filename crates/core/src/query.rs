@@ -42,6 +42,16 @@ pub struct MemoryQuery {
 
     /// Custom filters
     pub filters: HashMap<String, serde_json::Value>,
+
+    // RISC.OSINT namespace filtering
+    /// Filter by agent namespace (e.g. "categorizer", "narrative")
+    pub namespace: Option<String>,
+    /// Minimum confidence threshold
+    pub min_confidence: Option<f32>,
+    /// Filter by agent ID
+    pub agent_id: Option<String>,
+    /// Filter by tier
+    pub tier: Option<u8>,
 }
 
 impl MemoryQuery {
@@ -59,6 +69,10 @@ impl MemoryQuery {
             limit: None,
             min_relevance: None,
             filters: HashMap::new(),
+            namespace: None,
+            min_confidence: None,
+            agent_id: None,
+            tier: None,
         }
     }
 
@@ -109,6 +123,30 @@ impl MemoryQuery {
 
     pub fn with_filter(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.filters.insert(key.into(), value);
+        self
+    }
+
+    /// RISC.OSINT: Filter by agent namespace
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+
+    /// RISC.OSINT: Filter by minimum confidence
+    pub fn with_min_confidence(mut self, confidence: f32) -> Self {
+        self.min_confidence = Some(confidence);
+        self
+    }
+
+    /// RISC.OSINT: Filter by agent ID
+    pub fn with_agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.agent_id = Some(agent_id.into());
+        self
+    }
+
+    /// RISC.OSINT: Filter by tier
+    pub fn with_tier(mut self, tier: u8) -> Self {
+        self.tier = Some(tier);
         self
     }
 }

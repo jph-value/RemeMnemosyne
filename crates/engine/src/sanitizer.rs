@@ -78,9 +78,9 @@ pub fn sanitize_context(context: &str) -> String {
         .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
         .collect();
 
-    // Truncate extremely long contexts to prevent token overflow
+    // Truncate extremely long contexts to prevent token overflow (UTF-8 safe)
     if cleaned.len() > 8000 {
-        cleaned[..8000].to_string()
+        cleaned.chars().take(8000).collect()
     } else {
         cleaned
     }

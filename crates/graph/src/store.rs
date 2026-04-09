@@ -46,6 +46,26 @@ pub struct GraphMemoryStore {
     name_index: Arc<DashMap<String, HashSet<EntityId>>>,
     /// Entity clusters
     clusters: Arc<DashMap<uuid::Uuid, EntityCluster>>,
+    /// Composite key index for O(1) relationship lookups
+    relationship_index: Arc<DashMap<u64, Uuid>>,
+}
+
+fn relationship_key(source: &EntityId, target: &EntityId, rel_type: &RelationshipType) -> u64 {
+    let mut h: u64 = 14695981039346656037;
+    for byte in source.as_bytes() {
+        h ^= *byte as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    for byte in target.as_bytes() {
+        h ^= *byte as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    let type_str = format!("{:?}", rel_type);
+    for byte in type_str.bytes() {
+        h ^= byte as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    h
 }
 
 impl GraphMemoryStore {
@@ -58,6 +78,7 @@ impl GraphMemoryStore {
             node_indices: Arc::new(DashMap::new()),
             name_index: Arc::new(DashMap::new()),
             clusters: Arc::new(DashMap::new()),
+            relationship_index: Arc::new(DashMap::new()),
         }
     }
 
@@ -116,8 +137,8 @@ impl GraphMemoryStore {
         let relationship =
             GraphRelationship::new(source_id, target_id, relationship_type, strength);
 
-        // Check if relationship already exists
-        let existing_id = self.find_existing_relationship(
+        // Check if relationship already exists using O(1) index
+        let existing_id = self.find_existing_relationship_index(
             &source_id,
             &target_id,
             &relationship.relationship_type,
@@ -132,6 +153,10 @@ impl GraphMemoryStore {
         }
 
         let rel_id = relationship.id;
+
+        // Add to relationship index (O(1) lookup)
+        let key = relationship_key(&source_id, &target_id, &relationship.relationship_type);
+        self.relationship_index.insert(key, rel_id);
 
         // Add to graph
         {
@@ -407,7 +432,69 @@ impl GraphMemoryStore {
         }
     }
 
+    /// Delete entities that reference a given memory ID (cascade delete support)
+    pub async fn delete_entity_by_memory_id(&self, memory_id: &MemoryId) {
+        let to_remove: Vec<EntityId> = self
+            .entities
+            .iter()
+            .filter(|e| e.value().memory_ids.contains(memory_id))
+            .map(|e| *e.key())
+            .collect();
+
+        for entity_id in to_remove {
+            self.remove_entity_internal(&entity_id).await;
+        }
+    }
+
+    /// Delete a specific entity and all its relationships
+    pub async fn delete_entity(&self, entity_id: &EntityId) -> bool {
+        if self.entities.contains_key(entity_id) {
+            self.remove_entity_internal(entity_id).await;
+            true
+        } else {
+            false
+        }
+    }
+
     // Private helper methods
+
+    /// Internal: remove entity and all its relationships
+    async fn remove_entity_internal(&self, entity_id: &EntityId) {
+        // Remove relationships involving this entity (and their index entries)
+        let rels_to_remove: Vec<Uuid> = self
+            .relationships
+            .iter()
+            .filter(|r| r.value().source == *entity_id || r.value().target == *entity_id)
+            .map(|r| *r.key())
+            .collect();
+
+        for rel_id in &rels_to_remove {
+            if let Some(rel) = self.relationships.remove(rel_id) {
+                let key = relationship_key(&rel.1.source, &rel.1.target, &rel.1.relationship_type);
+                self.relationship_index.remove(&key);
+            }
+        }
+
+        // Remove from graph structure
+        if let Some(node) = self.node_indices.remove(entity_id) {
+            let mut graph = self.graph.write();
+            graph.remove_node(node.1);
+        }
+
+        // Remove from name index
+        if let Some(entity) = self.entities.remove(entity_id) {
+            let name_lower = entity.1.name.to_lowercase();
+            if let Some(mut ids) = self.name_index.get_mut(&name_lower) {
+                ids.remove(entity_id);
+            }
+            for alias in &entity.1.aliases {
+                let alias_lower = alias.to_lowercase();
+                if let Some(mut ids) = self.name_index.get_mut(&alias_lower) {
+                    ids.remove(entity_id);
+                }
+            }
+        }
+    }
 
     fn index_entity_name(&self, entity: &GraphEntity) {
         let name_lower = entity.name.to_lowercase();
@@ -425,23 +512,14 @@ impl GraphMemoryStore {
         }
     }
 
-    fn find_existing_relationship(
+    fn find_existing_relationship_index(
         &self,
         source: &EntityId,
         target: &EntityId,
         rel_type: &RelationshipType,
     ) -> Option<Uuid> {
-        for entry in self.relationships.iter() {
-            let rel = entry.value();
-            if rel.source == *source
-                && rel.target == *target
-                && std::mem::discriminant(&rel.relationship_type)
-                    == std::mem::discriminant(rel_type)
-            {
-                return Some(*entry.key());
-            }
-        }
-        None
+        let key = relationship_key(source, target, rel_type);
+        self.relationship_index.get(&key).map(|r| *r.value())
     }
 
     fn update_centrality(&self, entity_id: &EntityId) {

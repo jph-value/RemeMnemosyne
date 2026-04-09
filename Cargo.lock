@@ -2462,6 +2462,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2541,6 +2542,7 @@ name = "rememnemosyne-semantic"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bincode",
  "chrono",
  "dashmap",
  "half",

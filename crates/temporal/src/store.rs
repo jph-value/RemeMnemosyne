@@ -30,19 +30,16 @@ impl Default for TemporalMemoryConfig {
     }
 }
 
+type TimeIndexEntry = (DateTime<Utc>, uuid::Uuid);
+
 /// Temporal memory store for timeline-based queries
 pub struct TemporalMemoryStore {
     config: TemporalMemoryConfig,
-    /// All events indexed by ID
     events: Arc<DashMap<uuid::Uuid, TemporalEvent>>,
-    /// Events by entity
     entity_events: Arc<DashMap<EntityId, Vec<uuid::Uuid>>>,
-    /// Events by memory
     memory_events: Arc<DashMap<MemoryId, Vec<uuid::Uuid>>>,
-    /// Timeline manager
     timeline_manager: Arc<parking_lot::RwLock<TimelineManager>>,
-    /// Event index by time (for fast range queries)
-    time_index: Arc<parking_lot::RwLock<Vec<(chrono::DateTime<Utc>, uuid::Uuid)>>>,
+    time_index: Arc<parking_lot::RwLock<Vec<TimeIndexEntry>>>,
 }
 
 impl TemporalMemoryStore {
@@ -57,11 +54,8 @@ impl TemporalMemoryStore {
         }
     }
 
-    /// Record an event
     pub async fn record_event(&self, event: TemporalEvent) -> Result<uuid::Uuid> {
         let event_id = event.id;
-
-        // Create entity timeline if needed
         if self.config.auto_create_timelines {
             let mut manager = self.timeline_manager.write();
             if manager.get_entity_timeline(&event.entity_id).is_none() {
@@ -70,56 +64,27 @@ impl TemporalMemoryStore {
                     format!("Timeline for entity {}", event.entity_id),
                 );
             }
-
-            // Add to timeline
-            if manager
-                .add_event_to_entity(&event.entity_id, event.clone())
-                .is_err()
-            {
-                return Err(MemoryError::Storage(
-                    "Failed to add event to timeline".into(),
-                ));
+            if manager.add_event_to_entity(&event.entity_id, event.clone()).is_err() {
+                return Err(MemoryError::Storage("Failed to add event to timeline".into()));
             }
         }
-
-        // Store event
         self.events.insert(event_id, event.clone());
-
-        // Index by entity
-        self.entity_events
-            .entry(event.entity_id)
-            .or_default()
-            .push(event_id);
-
-        // Index by memory
-        self.memory_events
-            .entry(event.memory_id)
-            .or_default()
-            .push(event_id);
-
-        // Update time index
+        self.entity_events.entry(event.entity_id).or_default().push(event_id);
+        self.memory_events.entry(event.memory_id).or_default().push(event_id);
         {
             let mut time_index = self.time_index.write();
             time_index.push((event.timestamp, event_id));
-            // Keep sorted
             time_index.sort_by(|a, b| a.0.cmp(&b.0));
         }
-
         Ok(event_id)
     }
 
-    /// Get events for an entity within a time range
     pub async fn get_events_for_entity(
         &self,
         entity_id: &EntityId,
         window: Option<&TimeWindow>,
     ) -> Result<Vec<TemporalEvent>> {
-        let event_ids = self
-            .entity_events
-            .get(entity_id)
-            .map(|ids| ids.clone())
-            .unwrap_or_default();
-
+        let event_ids = self.entity_events.get(entity_id).map(|ids| ids.clone()).unwrap_or_default();
         let mut events = Vec::new();
         for event_id in event_ids {
             if let Some(event) = self.events.get(&event_id) {
@@ -131,39 +96,28 @@ impl TemporalMemoryStore {
                 events.push(event.clone());
             }
         }
-
-        // Sort by timestamp
         events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
         Ok(events)
     }
 
-    /// Get events for a memory
     pub async fn get_events_for_memory(&self, memory_id: &MemoryId) -> Result<Vec<TemporalEvent>> {
-        let event_ids = self
-            .memory_events
-            .get(memory_id)
-            .map(|ids| ids.clone())
-            .unwrap_or_default();
-
+        let event_ids = self.memory_events.get(memory_id).map(|ids| ids.clone()).unwrap_or_default();
         let mut events = Vec::new();
         for event_id in event_ids {
             if let Some(event) = self.events.get(&event_id) {
                 events.push(event.clone());
             }
         }
-
         events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
         Ok(events)
     }
 
-    /// Get timeline of events
     pub async fn get_timeline(
         &self,
         window: Option<&TimeWindow>,
         limit: usize,
     ) -> Result<Vec<TemporalEvent>> {
         let time_index = self.time_index.read();
-
         let mut events = Vec::new();
         for (_, event_id) in time_index.iter().rev() {
             if let Some(event) = self.events.get(event_id) {
@@ -178,11 +132,9 @@ impl TemporalMemoryStore {
                 }
             }
         }
-
         Ok(events)
     }
 
-    /// Get events by type
     pub async fn get_events_by_type(
         &self,
         event_type: &TemporalEventType,
@@ -194,35 +146,29 @@ impl TemporalMemoryStore {
             .filter(|e| e.event_type == *event_type)
             .map(|e| e.clone())
             .collect();
-
         events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         events.truncate(limit);
         Ok(events)
     }
 
-    /// Get entity timeline
     pub async fn get_entity_timeline(&self, entity_id: &EntityId) -> Option<Timeline> {
         let manager = self.timeline_manager.read();
         manager.get_entity_timeline(entity_id).cloned()
     }
 
-    /// Search events by description
     pub async fn search_events(&self, query: &str, limit: usize) -> Vec<TemporalEvent> {
         let query_lower = query.to_lowercase();
-
         let mut events: Vec<TemporalEvent> = self
             .events
             .iter()
             .filter(|e| e.description.to_lowercase().contains(&query_lower))
             .map(|e| e.clone())
             .collect();
-
         events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         events.truncate(limit);
         events
     }
 
-    /// Get events before/after a timestamp
     pub async fn get_events_around(
         &self,
         timestamp: chrono::DateTime<Utc>,
@@ -230,91 +176,161 @@ impl TemporalMemoryStore {
         after: usize,
     ) -> (Vec<TemporalEvent>, Vec<TemporalEvent>) {
         let time_index = self.time_index.read();
-
-        // Find position in sorted index
         let pos = time_index
             .binary_search_by(|(t, _)| t.cmp(&timestamp))
             .unwrap_or_else(|pos| pos);
-
-        // Get before
         let mut before_events = Vec::new();
         for i in (0..pos).rev().take(before) {
             if let Some(event) = self.events.get(&time_index[i].1) {
                 before_events.push(event.clone());
             }
         }
-
-        // Get after
         let mut after_events = Vec::new();
         for i in pos..time_index.len().min(pos + after) {
             if let Some(event) = self.events.get(&time_index[i].1) {
                 after_events.push(event.clone());
             }
         }
-
         (before_events, after_events)
     }
 
-    /// Get event statistics
     pub async fn get_statistics(&self) -> TemporalStatistics {
-        let mut stats = TemporalStatistics::default();
-        stats.total_events = self.events.len();
-        stats.unique_entities = self.entity_events.len();
-
-        // Count by type
-        for event in self.events.iter() {
-            let type_name = format!("{:?}", event.event_type);
-            *stats.events_by_type.entry(type_name).or_insert(0) += 1;
+        let time_index = self.time_index.read();
+        TemporalStatistics {
+            total_events: self.events.len(),
+            unique_entities: self.entity_events.len(),
+            events_by_type: self.events.iter().map(|e| format!("{:?}", e.event_type)).fold(HashMap::new(), |mut acc, t| {
+                *acc.entry(t).or_insert(0) += 1;
+                acc
+            }),
+            earliest_event: time_index.first().map(|(t, _)| *t),
+            latest_event: time_index.last().map(|(t, _)| *t),
         }
-
-        // Time range
-        if let Some(first) = self.time_index.read().first() {
-            stats.earliest_event = Some(first.0);
-        }
-        if let Some(last) = self.time_index.read().last() {
-            stats.latest_event = Some(last.0);
-        }
-
-        stats
     }
 
-    /// Clean up old events
     pub async fn cleanup_old_events(&self) -> Result<usize> {
         let cutoff = Utc::now() - chrono::Duration::days(self.config.event_retention_days);
-
         let to_remove: Vec<uuid::Uuid> = self
             .events
             .iter()
             .filter(|e| e.timestamp < cutoff)
             .map(|e| *e.key())
             .collect();
-
         let removed = to_remove.len();
-
         for event_id in to_remove {
             if let Some((_, event)) = self.events.remove(&event_id) {
-                // Remove from entity index
                 if let Some(mut ids) = self.entity_events.get_mut(&event.entity_id) {
                     ids.retain(|id| *id != event_id);
                 }
-                // Remove from memory index
                 if let Some(mut ids) = self.memory_events.get_mut(&event.memory_id) {
                     ids.retain(|id| *id != event_id);
                 }
-                // Remove from time index
                 {
                     let mut time_index = self.time_index.write();
                     time_index.retain(|(_, id)| *id != event_id);
                 }
             }
         }
-
         Ok(removed)
+    }
+
+    /// Delete all events associated with a given memory ID (cascade delete)
+    pub async fn delete_events_by_memory_id(&self, memory_id: &MemoryId) {
+        let event_ids: Vec<uuid::Uuid> = self
+            .memory_events
+            .get(memory_id)
+            .map(|ids| ids.clone())
+            .unwrap_or_default();
+        for event_id in event_ids {
+            if let Some((_, event)) = self.events.remove(&event_id) {
+                if let Some(mut ids) = self.entity_events.get_mut(&event.entity_id) {
+                    ids.retain(|id| *id != event_id);
+                }
+                {
+                    let mut time_index = self.time_index.write();
+                    time_index.retain(|(_, id)| *id != event_id);
+                }
+            }
+        }
+        self.memory_events.remove(memory_id);
+    }
+
+    /// Record a firehose event (RISC.OSINT integration)
+    pub async fn record_firehose_event(
+        &self,
+        entity_id: EntityId,
+        memory_id: MemoryId,
+        description: impl Into<String>,
+    ) -> Result<uuid::Uuid> {
+        let event = TemporalEvent::new(
+            entity_id,
+            memory_id,
+            TemporalEventType::ExternalEvent,
+            description,
+        );
+        self.record_event(event).await
+    }
+
+    /// Get event density for a time window (heatmap support)
+    pub async fn get_event_density(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        bucket_count: usize,
+    ) -> Vec<usize> {
+        let time_index = self.time_index.read();
+        let mut buckets = vec![0usize; bucket_count];
+        let total_secs = (end - start).num_seconds() as f64;
+        if total_secs <= 0.0 {
+            return buckets;
+        }
+        let bucket_secs = total_secs / bucket_count as f64;
+        for (timestamp, _) in time_index.iter() {
+            if *timestamp >= start && *timestamp <= end {
+                let offset = (*timestamp - start).num_seconds() as f64;
+                let bucket = (offset / bucket_secs) as usize;
+                if bucket < bucket_count {
+                    buckets[bucket] += 1;
+                }
+            }
+        }
+        buckets
+    }
+
+    /// Detect temporal patterns: escalation or stabilization signals
+    pub async fn detect_temporal_pattern(
+        &self,
+        window_hours: i64,
+        comparison_window_hours: i64,
+    ) -> TemporalPattern {
+        let now = Utc::now();
+        let current_start = now - chrono::Duration::hours(window_hours);
+        let previous_start = now - chrono::Duration::hours(window_hours + comparison_window_hours);
+        let previous_end = now - chrono::Duration::hours(comparison_window_hours);
+        let time_index = self.time_index.read();
+        let current_count = time_index.iter().filter(|(t, _)| *t >= current_start && *t <= now).count();
+        let previous_count = time_index.iter().filter(|(t, _)| *t >= previous_start && *t <= previous_end).count();
+        if previous_count == 0 {
+            return TemporalPattern::Stable { current_count, previous_count: 0 };
+        }
+        let ratio = current_count as f32 / previous_count as f32;
+        if ratio > 2.0 {
+            TemporalPattern::Escalation { current_count, previous_count, ratio }
+        } else if ratio < 0.5 {
+            TemporalPattern::Stabilization { current_count, previous_count, ratio }
+        } else {
+            TemporalPattern::Stable { current_count, previous_count }
+        }
     }
 }
 
-// Note: TemporalMemoryStore trait from core is not implemented here
-// due to naming conflict. The struct provides its own methods directly.
+/// Detected temporal pattern
+#[derive(Debug, Clone)]
+pub enum TemporalPattern {
+    Escalation { current_count: usize, previous_count: usize, ratio: f32 },
+    Stabilization { current_count: usize, previous_count: usize, ratio: f32 },
+    Stable { current_count: usize, previous_count: usize },
+}
 
 #[allow(dead_code)]
 fn convert_to_memory_event(event: TemporalEvent) -> MemoryEvent {
@@ -330,6 +346,7 @@ fn convert_to_memory_event(event: TemporalEvent) -> MemoryEvent {
             TemporalEventType::MemoryMerged => EventType::Merged,
             TemporalEventType::Archived => EventType::Archived,
             TemporalEventType::Deleted => EventType::Deleted,
+            TemporalEventType::ExternalEvent => EventType::Custom("external_event".into()),
             other => EventType::Custom(format!("{:?}", other)),
         },
         timestamp: event.timestamp,

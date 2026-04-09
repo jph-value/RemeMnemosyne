@@ -4,7 +4,7 @@
 /// their own AI APIs for embeddings, reasoning, and agent tasks.
 ///
 /// Three configurable layers:
-/// 1. Embedding Providers - OpenAI, Voyage, Cohere, Ollama, local, custom
+/// 1. Embedding Providers - OpenRouter, OpenAI, Voyage, Cohere, Ollama, local, custom
 /// 2. Reasoning Providers - OpenAI, Anthropic, OpenRouter, local, custom
 /// 3. Agent Providers - Verification, analysis, report, simulation agents
 ///
@@ -22,6 +22,118 @@ use std::sync::Arc;
 
 // Need async_trait for trait definitions in this module
 use async_trait::async_trait;
+
+// ============================================================================
+// OpenRouter Embedding Provider (stub — HTTP client deferred)
+// ============================================================================
+
+/// OpenRouter embedding provider.
+///
+/// Calls the OpenRouter API to generate embeddings using any supported model
+/// (e.g. voyage/voyage-3-lite, openai/text-embedding-3-small).
+///
+/// Configuration:
+/// - api_key: OpenRouter API key (required)
+/// - model: Model identifier (e.g. "voyage/voyage-3-lite")
+/// - dimensions: Embedding dimensions (e.g. 512 for Voyage lite)
+/// - base_url: Override API base URL (default: https://openrouter.ai/api/v1)
+///
+/// RISC.OSINT recommended: voyage/voyage-3-lite @ 512 dims
+#[derive(Debug)]
+pub struct OpenRouterEmbedding {
+    #[allow(dead_code)]
+    api_key: String,
+    model: String,
+    dimensions: usize,
+    base_url: String,
+    timeout_secs: u64,
+    max_retries: u32,
+}
+
+impl OpenRouterEmbedding {
+    pub fn new(api_key: impl Into<String>, model: impl Into<String>, dimensions: usize) -> Self {
+        Self {
+            api_key: api_key.into(),
+            model: model.into(),
+            dimensions,
+            base_url: "https://openrouter.ai/api/v1".to_string(),
+            timeout_secs: 30,
+            max_retries: 3,
+        }
+    }
+
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
+        self.timeout_secs = timeout_secs;
+        self
+    }
+
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// Generate embeddings for multiple texts via OpenRouter API.
+    /// TODO: Implement actual HTTP call to OpenRouter /embeddings endpoint.
+    /// For now, returns hash-based fallback embeddings.
+    async fn embed_via_api(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        let _ = &texts;
+        tracing::warn!(
+            model = %self.model,
+            "OpenRouterEmbedding: HTTP client not yet implemented, using hash fallback"
+        );
+        // Return hash-based fallback embeddings padded to target dimensions
+        let embedder = HashEmbedder::new(self.dimensions.min(128));
+        let mut results = Vec::with_capacity(texts.len());
+        for text in &texts {
+            let mut emb = embedder.embed_sync(text);
+            // Pad to target dimension if hash embedder is smaller
+            while emb.len() < self.dimensions {
+                emb.push(0.0);
+            }
+            results.push(emb);
+        }
+        Ok(results)
+    }
+}
+
+#[async_trait]
+impl EmbeddingProvider for OpenRouterEmbedding {
+    async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
+        let texts = vec![request.text.clone()];
+        let embeddings = self.embed_via_api(texts).await?;
+        let embedding = embeddings.into_iter().next().unwrap_or_else(|| {
+            vec![0.0; self.dimensions]
+        });
+        Ok(EmbeddingResponse::new(embedding, &self.model))
+    }
+
+    async fn embed_batch(&self, requests: Vec<EmbeddingRequest>) -> Result<Vec<EmbeddingResponse>> {
+        let texts: Vec<String> = requests.iter().map(|r| r.text.clone()).collect();
+        let embeddings = self.embed_via_api(texts).await?;
+        let responses = embeddings
+            .into_iter()
+            .map(|emb| EmbeddingResponse::new(emb, &self.model))
+            .collect();
+        Ok(responses)
+    }
+
+    fn provider_type(&self) -> EmbeddingProviderType {
+        EmbeddingProviderType::OpenRouter
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    fn dimensions(&self) -> usize {
+        self.dimensions
+    }
+}
 
 // ============================================================================
 // Embedding Provider Router
@@ -48,12 +160,35 @@ impl EmbeddingProviderRouter {
     /// Create with configured provider
     pub fn from_config(config: &EmbeddingProviderConfig) -> Self {
         match config.provider {
+            EmbeddingProviderType::OpenRouter => {
+                if let Some(ref api_key) = config.api_key {
+                    let model = if config.model.is_empty() || config.model == "all-MiniLM-L6-v2" {
+                        "voyage/voyage-3-lite".to_string()
+                    } else {
+                        config.model.clone()
+                    };
+                    let dimensions = if config.dimensions == 384 {
+                        512 // Default to Voyage lite dimensions
+                    } else {
+                        config.dimensions
+                    };
+                    tracing::info!(
+                        model = %model,
+                        dimensions = dimensions,
+                        "Creating OpenRouter embedding provider"
+                    );
+                    let provider = OpenRouterEmbedding::new(api_key, model, dimensions);
+                    Self::new(Arc::new(provider))
+                } else {
+                    tracing::warn!("OpenRouter provider configured but no API key set, using hash fallback");
+                    Self::new(Arc::new(HashEmbedder::new(config.dimensions)))
+                }
+            }
             EmbeddingProviderType::Local => {
                 // Use hash embedder as default local
                 Self::new(Arc::new(HashEmbedder::new(config.dimensions)))
             }
-            // Other providers would be implemented here
-            // For now, fall back to hash
+            // Other providers fall back to hash for now
             _ => {
                 tracing::warn!(
                     provider = ?config.provider,

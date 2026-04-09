@@ -35,7 +35,6 @@ chrono = { version = "0.4", features = ["serde"] }
 # Storage
 rocksdb = "0.22"
 sled = "0.34"
-memmap2 = "0.9"
 
 # Collections and utilities
 dashmap = "6"
@@ -45,7 +44,6 @@ itertools = "0.14"
 
 # Compression and quantization
 half = "2"
-packed_simd = { version = "0.3", package = "packed_simd_2" }
 
 # Graph
 petgraph = "0.6"
@@ -58,13 +56,11 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Vector similarity
-cosim = "0.1"
-
 # ML embeddings (optional, behind feature flag)
 candle-core = { version = "0.8" }
 candle-transformers = { version = "0.8" }
 candle-nn = { version = "0.8" }
+candle-onnx = { version = "0.8" }
 tokenizers = { version = "0.20" }
 hf-hub = { version = "0.3" }
 

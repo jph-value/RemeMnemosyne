@@ -96,6 +96,9 @@ pub enum TemporalEventType {
     MemoryRetrieved,
     MemoryMerged,
 
+    // Firehose/external events (RISC.OSINT)
+    ExternalEvent,
+
     // Agent events
     DecisionMade,
     TaskStarted,

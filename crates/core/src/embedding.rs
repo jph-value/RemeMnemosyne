@@ -4,12 +4,14 @@
 /// Allows integrators to swap embedding engines without modifying the core.
 ///
 /// Supported providers:
+/// - OpenRouter - calls OpenRouter API, supports any model (voyage, openai, etc.)
 /// - Local (Candle/fastembed) - no API key, runs locally
 /// - OpenAI - text-embedding-ada-002, text-embedding-3-small, etc.
 /// - Voyage - Voyage AI embeddings
 /// - Cohere - Cohere embed
 /// - Ollama - Local Ollama models
 /// - Custom - User's own API endpoint
+/// - MicroEmbedder (Hash/BOW/CharNGram) - lightweight fallback
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -59,6 +61,8 @@ impl Default for EmbeddingProviderConfig {
 /// Supported embedding providers
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmbeddingProviderType {
+    /// OpenRouter API (multi-provider aggregator)
+    OpenRouter,
     /// Local embedding (Candle/fastembed)
     Local,
     /// OpenAI embeddings (text-embedding-ada-002, etc.)
@@ -76,6 +80,7 @@ pub enum EmbeddingProviderType {
 impl std::fmt::Display for EmbeddingProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            EmbeddingProviderType::OpenRouter => write!(f, "openrouter"),
             EmbeddingProviderType::Local => write!(f, "local"),
             EmbeddingProviderType::OpenAI => write!(f, "openai"),
             EmbeddingProviderType::Voyage => write!(f, "voyage"),

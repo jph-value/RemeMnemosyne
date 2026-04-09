@@ -89,7 +89,7 @@ async fn test_injection_blocked_on_store() {
 async fn test_pruner_lifecycle() {
     use rememnemosyne_engine::MemoryPruner;
 
-    let pruner = MemoryPruner::default();
+    let pruner = MemoryPruner::try_default();
 
     let high = MemoryArtifact::new(
         MemoryType::Semantic,

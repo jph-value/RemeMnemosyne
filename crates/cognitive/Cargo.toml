@@ -30,4 +30,11 @@ candle-embeddings = [
     "dep:candle-nn",
     "dep:tokenizers",
     "dep:hf-hub",
+    "dep:candle-onnx",
 ]
+
+[dependencies]
+candle-onnx = { workspace = true, optional = true }
+
+[dependencies]
+candle-onnx = { workspace = true, optional = true }

@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_pruner_should_keep_critical() {
-        let pruner = MemoryPruner::default();
+        let pruner = MemoryPruner::try_default();
         let memory = MemoryArtifact::new(
             MemoryType::Semantic,
             "critical",

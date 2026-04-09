@@ -180,10 +180,10 @@ impl MemoryRouter {
         let id = artifact.id;
 
         // Store in semantic memory
-        let _ = self.semantic.store(artifact.clone()).await?;
+        self.semantic.store(artifact.clone()).await?;
 
         // Store in episodic memory
-        let _ = self.episodic.store(artifact.clone()).await?;
+        self.episodic.store(artifact.clone()).await?;
 
         // Update prefetcher with new memory
         if !artifact.embedding.is_empty() {
@@ -275,6 +275,45 @@ impl MemoryRouter {
             Ok(corrected)
         } else {
             Ok(embedding)
+        }
+    }
+
+    /// Generate embeddings for multiple texts in batch
+    pub async fn generate_embedding_batch(&self, texts: &[String]) -> Vec<Vec<f32>> {
+        let provider = {
+            let embedder = self.embedder.read();
+            embedder.clone_provider()
+        };
+
+        let requests: Vec<_> = texts.iter().map(EmbeddingRequest::new).collect();
+        let responses = provider.embed_batch(requests).await;
+
+        match responses {
+            Ok(responses) => responses
+                .into_iter()
+                .map(|r| {
+                    if r.embedding.len() != self.config.embedding_dimensions {
+                        let mut corrected = vec![0.0; self.config.embedding_dimensions];
+                        let copy_len =
+                            std::cmp::min(r.embedding.len(), self.config.embedding_dimensions);
+                        corrected[..copy_len].copy_from_slice(&r.embedding[..copy_len]);
+                        corrected
+                    } else {
+                        r.embedding
+                    }
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "Batch embedding failed, falling back to individual");
+                let mut results = Vec::with_capacity(texts.len());
+                for text in texts {
+                    let emb = self.generate_embedding(text).await.unwrap_or_else(|_| {
+                        vec![0.0; self.config.embedding_dimensions]
+                    });
+                    results.push(emb);
+                }
+                results
+            }
         }
     }
 
