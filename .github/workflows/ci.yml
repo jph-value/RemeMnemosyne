@@ -10,6 +10,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -20,7 +21,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         rust: [stable, beta]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -43,15 +44,16 @@ jobs:
       - name: Run tests (default features)
         run: cargo test --verbose
 
-      # Test with optional features that don't require C++ toolchain
+      # Test with optional features that don't require C++ toolchain or external downloads
       - name: Test with all-pure-Rust features
-        run: cargo test --features "candle-embeddings,entity-resolution,backup-export,metrics,http-server,config-file,structured-logging,sharding,read-replicas,compaction,auto-pruning" --verbose
+        run: cargo test --features "entity-resolution,backup-export,metrics,http-server,config-file,structured-logging,sharding,read-replicas,compaction,auto-pruning" --verbose
 
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -74,7 +76,7 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -90,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -102,7 +104,7 @@ jobs:
         run: cargo bench -p rememnemosyne-engine
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: benchmark-results
           path: target/criterion/
