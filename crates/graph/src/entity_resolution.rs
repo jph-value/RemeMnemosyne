@@ -118,9 +118,6 @@ impl EntityResolver {
         b: &GraphEntity,
         similarity_fn: &dyn Fn(&str, &str) -> f64,
     ) -> Option<EntityMatch> {
-        use strsim::normalized_damerau_levenshtein;
-
-        // Skip if same entity
         if a.id == b.id {
             return None;
         }
@@ -145,7 +142,7 @@ impl EntityResolver {
             // Check embedding similarity as fallback
             let embed_sim = a.similarity(b);
             if embed_sim >= self.config.embedding_threshold {
-                let combined = (name_sim * 0.4 + embed_sim as f64 * 0.6);
+                let combined = name_sim * 0.4 + embed_sim as f64 * 0.6;
                 if combined >= self.config.match_threshold {
                     return Some(EntityMatch {
                         entity_id: a.id,

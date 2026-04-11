@@ -6,7 +6,7 @@
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use rememnemosyne_core::{
-    EntityId, EntityType, MemoryArtifact, MemoryError, MemoryId, MemoryQuery, MemoryType, Result,
+    EntityType, MemoryArtifact, MemoryError, MemoryId, MemoryQuery, MemoryType, Result,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -290,6 +290,12 @@ impl ShardedMemoryStore {
             MemoryType::Episodic => EntityType::Event,
             MemoryType::Graph => EntityType::Concept,
             MemoryType::Temporal => EntityType::Event,
+            MemoryType::EventClassification
+            | MemoryType::InfrastructureGap
+            | MemoryType::GapDocumentation
+            | MemoryType::NarrativeThread
+            | MemoryType::EvidenceChain
+            | MemoryType::CounterNarrative => EntityType::Concept,
         }
     }
 
