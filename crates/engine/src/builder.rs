@@ -132,8 +132,10 @@ impl RememnosyneEngine {
 
     /// Create with in-memory storage only (no persistence)
     pub fn in_memory() -> Result<Self> {
-        let mut config = RememnosyneConfig::default();
-        config.enable_persistence = false;
+        let config = RememnosyneConfig {
+            enable_persistence: false,
+            ..Default::default()
+        };
         Self::new(config)
     }
 
@@ -390,7 +392,8 @@ impl RememnosyneEngine {
                 .build_context_weighted(&response, vec![], vec![], &query_embedding)
         } else {
             // Cold start: fall through to standard assembly
-            self.context_builder.build_context(&response, vec![], vec![])
+            self.context_builder
+                .build_context(&response, vec![], vec![])
         };
 
         Ok(bundle)

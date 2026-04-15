@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_ssc_router_register_and_route() {
-        use rememnemosyne_core::{MemoryCheckpoint, MemoryTrigger, MemoryType};
+        use rememnemosyne_core::{CheckpointEmbeddingMethod, MemoryCheckpoint};
 
         let router = SSCRouter::with_defaults();
 
@@ -217,7 +217,7 @@ mod tests {
             "Test checkpoint 1".to_string(),
             5,
             vec![Uuid::new_v4(); 5],
-            rememnemosyne_core::CheckpointEmbeddingMethod::MeanPool,
+            CheckpointEmbeddingMethod::MeanPool,
         );
 
         let cp2 = MemoryCheckpoint::new(
@@ -227,7 +227,7 @@ mod tests {
             "Test checkpoint 2".to_string(),
             3,
             vec![Uuid::new_v4(); 3],
-            rememnemosyne_core::CheckpointEmbeddingMethod::MeanPool,
+            CheckpointEmbeddingMethod::MeanPool,
         );
 
         router.register_checkpoint(&cp1);

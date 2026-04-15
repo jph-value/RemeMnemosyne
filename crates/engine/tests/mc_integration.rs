@@ -5,9 +5,9 @@
 //! - Phase 2: Gated Context Assembly — per-memory contribution weights (γ)
 //! - Phase 3: SSC Router — Top-k checkpoint selection with boost scoring
 
+use rememnemosyne_cognitive::SSCRouter;
 use rememnemosyne_core::{Importance, MemoryArtifact, MemoryTrigger, MemoryType};
 use rememnemosyne_episodic::{CheckpointConfig, CheckpointStore};
-use rememnemosyne_cognitive::SSCRouter;
 
 /// Phase 1: Checkpoint creation and search flow
 #[tokio::test]
@@ -41,7 +41,10 @@ async fn test_mc_checkpoint_creation_and_search() {
     // Search for Rust-related content
     let results = store.search_checkpoints(&[0.95, 0.05, 0.0], 5);
     assert!(!results.is_empty(), "Should find checkpoint");
-    assert!(results[0].1 > 0.5, "Should have high similarity to Rust query");
+    assert!(
+        results[0].1 > 0.5,
+        "Should have high similarity to Rust query"
+    );
 }
 
 /// Phase 1: Checkpoint expansion to retrieve individual memories
@@ -93,8 +96,8 @@ async fn test_mc_checkpoint_eviction() {
 /// Phase 3: SSC router selects top-k checkpoints
 #[tokio::test]
 async fn test_mc_ssc_router_top_k() {
-    use rememnemosyne_core::MemoryCheckpoint;
     use chrono::Utc;
+    use rememnemosyne_core::MemoryCheckpoint;
 
     let router = SSCRouter::with_defaults();
 
@@ -125,8 +128,14 @@ async fn test_mc_ssc_router_top_k() {
     let query = vec![0.95, 0.05, 0.0];
 
     let routed = router.route(&query, &ids);
-    assert!(!routed.is_empty(), "Should route to at least one checkpoint");
-    assert_eq!(routed[0], cp1.id, "Should route to the more similar checkpoint");
+    assert!(
+        !routed.is_empty(),
+        "Should route to at least one checkpoint"
+    );
+    assert_eq!(
+        routed[0], cp1.id,
+        "Should route to the more similar checkpoint"
+    );
 }
 
 /// Phase 2: Contribution weights control rendering depth
@@ -270,7 +279,10 @@ async fn test_mc_full_pipeline() {
     // SSC routing should prefer Rust checkpoint
     let routed = router.route_with_scores(&query_embedding, &all_ids);
     assert!(!routed.is_empty(), "Should route to checkpoints");
-    assert_eq!(routed[0].0, rust_checkpoint.id, "Rust checkpoint should rank first");
+    assert_eq!(
+        routed[0].0, rust_checkpoint.id,
+        "Rust checkpoint should rank first"
+    );
 
     // Expand the high-relevance checkpoint
     let expansion_threshold = store.config().expansion_threshold;
@@ -284,7 +296,10 @@ async fn test_mc_full_pipeline() {
     }
 
     // Should have boosted Rust memory IDs
-    assert!(!boosted_ids.is_empty(), "Should have expanded memory IDs from Rust checkpoint");
+    assert!(
+        !boosted_ids.is_empty(),
+        "Should have expanded memory IDs from Rust checkpoint"
+    );
 
     // The 1.3× boost multiplier should elevate these in ranking
     // (This is tested implicitly via the MemoryRouter.query() flow)
@@ -309,8 +324,8 @@ async fn test_mc_checkpoint_count_trigger() {
 /// Context stack MC escalation
 #[tokio::test]
 async fn test_mc_context_stack_escalation() {
-    use rememnemosyne_engine::context_stack::LayeredContextStack;
     use rememnemosyne_core::Importance;
+    use rememnemosyne_engine::context_stack::LayeredContextStack;
 
     let mut stack = LayeredContextStack::for_large_model();
 

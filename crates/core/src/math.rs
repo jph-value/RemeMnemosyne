@@ -4,7 +4,6 @@
 /// and softmax normalization — the core numerical primitives behind MC's
 /// Gated Residual Memory, Sparse Selective Caching, and checkpoint
 /// embedding computation.
-
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;

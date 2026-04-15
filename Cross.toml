@@ -1,0 +1,19 @@
+# Cross-compilation configuration for aarch64
+# See: https://github.com/cross-rs/cross
+
+[target.aarch64-unknown-linux-gnu]
+# Use a minimal Docker image with aarch64 cross-compilation toolchain
+# sled and zstd both compile natively on aarch64
+pre-build = [
+    "dpkg --add-architecture arm64",
+    "apt-get update",
+    "apt-get install -y libssl-dev:arm64 pkg-config:arm64",
+]
+
+[build]
+# Default target for cross-compilation
+# default-target = "x86_64-unknown-linux-gnu"
+
+[env]
+# Ensure pkg-config finds arm64 libraries
+PKG_CONFIG_LIBDIR = "/usr/lib/aarch64-linux-gnu/pkgconfig"

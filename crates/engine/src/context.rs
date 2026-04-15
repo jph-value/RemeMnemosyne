@@ -408,9 +408,9 @@ impl ContextBuilderEngine {
             parts.push("### Related Entities".to_string());
             for entity in bundle.entities.iter().take(5) {
                 parts.push(format!(
-                    "- **{}** ({}): {}",
+                    "- **{}** ({:?}): {}",
                     entity.name,
-                    format!("{:?}", entity.entity_type),
+                    entity.entity_type,
                     entity.description.chars().take(100).collect::<String>()
                 ));
             }

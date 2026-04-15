@@ -1,68 +1,61 @@
-/// Prometheus metrics for monitoring RemeMnemosyne engine
-///
-/// This module provides comprehensive metrics for monitoring the memory engine,
-/// including memory counts, operation latencies, cache hit rates, and more.
-/// Enabled with the `metrics` feature flag.
-use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue, LabelValueEncoder};
+//! Prometheus metrics for monitoring RemeMnemosyne engine
+//!
+//! This module provides comprehensive metrics for monitoring the memory engine,
+//! including memory counts, operation latencies, cache hit rates, and more.
+//! Enabled with the `metrics` feature flag.
+use prometheus_client::encoding::text::encode;
 use prometheus_client::metrics::{
     counter::Counter, family::Family, gauge::Gauge, histogram::Histogram,
 };
 use prometheus_client::registry::Registry;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Instant;
 
 /// RemeMnemosyne metrics collector
 #[derive(Clone)]
 pub struct RememnosyneMetrics {
-    /// Prometheus registry
-    pub registry: Arc<parking_lot::RwLock<Registry>>,
-
-    // Memory metrics
-    /// Total number of memories stored
-    pub total_memories: Family<MemoryLabels, Gauge>,
-    /// Semantic memories count
-    pub semantic_memories: Gauge,
-    /// Episodic memories count
-    pub episodic_memories: Gauge,
-    /// Graph entities count
-    pub graph_entities: Gauge,
-    /// Graph relationships count
-    pub graph_relationships: Gauge,
-
-    // Operation metrics
-    /// Total remember operations
-    pub remember_ops_total: Counter,
-    /// Total recall operations
-    pub recall_ops_total: Counter,
-    /// Total delete operations
-    pub delete_ops_total: Counter,
-
-    // Latency metrics
-    /// Remember operation latency (ms)
-    pub remember_latency_seconds: Histogram,
-    /// Recall operation latency (ms)
-    pub recall_latency_seconds: Histogram,
-
-    // Cache metrics
-    /// Cache hits
-    pub cache_hits: Counter,
-    /// Cache misses
-    pub cache_misses: Counter,
-
-    // Error metrics
-    /// Total errors
-    pub errors_total: Family<ErrorLabels, Counter>,
+    registry: Arc<parking_lot::RwLock<Registry>>,
+    total_memories: Family<MemoryLabels, Gauge>,
+    semantic_memories: Gauge,
+    episodic_memories: Gauge,
+    graph_entities: Gauge,
+    graph_relationships: Gauge,
+    remember_ops_total: Counter,
+    recall_ops_total: Counter,
+    delete_ops_total: Counter,
+    remember_latency_seconds: Histogram,
+    recall_latency_seconds: Histogram,
+    cache_hits: Counter,
+    cache_misses: Counter,
+    errors_total: Family<ErrorLabels, Counter>,
 }
 
-/// Memory type labels
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet, Serialize, Deserialize)]
+/// Label set for memory metrics
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    prometheus_client::encoding::EncodeLabelSet,
+    Serialize,
+    Deserialize,
+)]
 pub struct MemoryLabels {
     pub memory_type: MemoryTypeLabel,
     pub trigger: TriggerLabel,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    prometheus_client::encoding::EncodeLabelValue,
+    Serialize,
+    Deserialize,
+)]
 pub enum MemoryTypeLabel {
     Semantic,
     Episodic,
@@ -70,7 +63,16 @@ pub enum MemoryTypeLabel {
     Temporal,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    prometheus_client::encoding::EncodeLabelValue,
+    Serialize,
+    Deserialize,
+)]
 pub enum TriggerLabel {
     UserInput,
     SystemOutput,
@@ -86,12 +88,30 @@ pub enum TriggerLabel {
 }
 
 /// Error type labels
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    prometheus_client::encoding::EncodeLabelSet,
+    Serialize,
+    Deserialize,
+)]
 pub struct ErrorLabels {
     pub error_type: ErrorTypeLabel,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    prometheus_client::encoding::EncodeLabelValue,
+    Serialize,
+    Deserialize,
+)]
 pub enum ErrorTypeLabel {
     Storage,
     Quantization,
@@ -108,7 +128,7 @@ pub enum ErrorTypeLabel {
 impl RememnosyneMetrics {
     /// Create new metrics collector
     pub fn new() -> Self {
-        let registry = Registry::default();
+        let mut registry = Registry::default();
 
         let total_memories = Family::default();
         let semantic_memories = Gauge::default();
@@ -138,67 +158,63 @@ impl RememnosyneMetrics {
 
         let errors_total = Family::default();
 
-        // Register metrics
-        {
-            let mut reg = registry.write();
-            reg.register(
-                "total_memories",
-                "Total number of memories stored",
-                total_memories.clone(),
-            );
-            reg.register(
-                "semantic_memories",
-                "Number of semantic memories",
-                semantic_memories.clone(),
-            );
-            reg.register(
-                "episodic_memories",
-                "Number of episodic memories",
-                episodic_memories.clone(),
-            );
-            reg.register(
-                "graph_entities",
-                "Number of graph entities",
-                graph_entities.clone(),
-            );
-            reg.register(
-                "graph_relationships",
-                "Number of graph relationships",
-                graph_relationships.clone(),
-            );
-            reg.register(
-                "remember_ops_total",
-                "Total remember operations",
-                remember_ops_total.clone(),
-            );
-            reg.register(
-                "recall_ops_total",
-                "Total recall operations",
-                recall_ops_total.clone(),
-            );
-            reg.register(
-                "delete_ops_total",
-                "Total delete operations",
-                delete_ops_total.clone(),
-            );
-            reg.register(
-                "remember_latency_seconds",
-                "Remember operation latency",
-                remember_latency_seconds.clone(),
-            );
-            reg.register(
-                "recall_latency_seconds",
-                "Recall operation latency",
-                recall_latency_seconds.clone(),
-            );
-            reg.register("cache_hits_total", "Total cache hits", cache_hits.clone());
-            reg.register(
-                "cache_misses_total",
-                "Total cache misses",
-                cache_misses.clone(),
-            );
-            reg.register("errors_total", "Total errors by type", errors_total.clone());
-        }
+        registry.register(
+            "total_memories",
+            "Total number of memories stored",
+            total_memories.clone(),
+        );
+        registry.register(
+            "semantic_memories",
+            "Number of semantic memories",
+            semantic_memories.clone(),
+        );
+        registry.register(
+            "episodic_memories",
+            "Number of episodic memories",
+            episodic_memories.clone(),
+        );
+        registry.register(
+            "graph_entities",
+            "Number of graph entities",
+            graph_entities.clone(),
+        );
+        registry.register(
+            "graph_relationships",
+            "Number of graph relationships",
+            graph_relationships.clone(),
+        );
+        registry.register(
+            "remember_ops_total",
+            "Total remember operations",
+            remember_ops_total.clone(),
+        );
+        registry.register(
+            "recall_ops_total",
+            "Total recall operations",
+            recall_ops_total.clone(),
+        );
+        registry.register(
+            "delete_ops_total",
+            "Total delete operations",
+            delete_ops_total.clone(),
+        );
+        registry.register(
+            "remember_latency_seconds",
+            "Remember operation latency",
+            remember_latency_seconds.clone(),
+        );
+        registry.register(
+            "recall_latency_seconds",
+            "Recall operation latency",
+            recall_latency_seconds.clone(),
+        );
+        registry.register("cache_hits_total", "Total cache hits", cache_hits.clone());
+        registry.register(
+            "cache_misses_total",
+            "Total cache misses",
+            cache_misses.clone(),
+        );
+        registry.register("errors_total", "Total errors by type", errors_total.clone());
 
         Self {
             registry: Arc::new(parking_lot::RwLock::new(registry)),
@@ -227,7 +243,7 @@ impl RememnosyneMetrics {
     pub fn encode(&self) -> String {
         let mut buffer = String::new();
         let reg = self.registry.read();
-        prometheus_client::encoding::text::encode(&mut buffer, &reg).unwrap_or_default();
+        encode(&mut buffer, &reg).unwrap_or_default();
         buffer
     }
 
@@ -244,21 +260,27 @@ impl RememnosyneMetrics {
 
         self.total_memories
             .get_or_create(&MemoryLabels {
-                memory_type,
+                memory_type: memory_type.clone(),
                 trigger,
             })
             .inc();
 
         match memory_type {
-            MemoryTypeLabel::Semantic => self.semantic_memories.inc(),
-            MemoryTypeLabel::Episodic => self.episodic_memories.inc(),
-            MemoryTypeLabel::Graph => self.graph_entities.inc(),
-            MemoryTypeLabel::Temporal => {} // Counted separately
+            MemoryTypeLabel::Semantic => {
+                self.semantic_memories.inc();
+            }
+            MemoryTypeLabel::Episodic => {
+                self.episodic_memories.inc();
+            }
+            MemoryTypeLabel::Graph => {
+                self.graph_entities.inc();
+            }
+            MemoryTypeLabel::Temporal => {}
         }
     }
 
     /// Record a recall operation
-    pub fn record_recall(&self, duration: std::time::Duration, results_count: usize) {
+    pub fn record_recall(&self, duration: std::time::Duration, _results_count: usize) {
         self.recall_ops_total.inc();
         self.recall_latency_seconds.observe(duration.as_secs_f64());
     }
@@ -266,9 +288,6 @@ impl RememnosyneMetrics {
     /// Record a delete operation
     pub fn record_delete(&self) {
         self.delete_ops_total.inc();
-        self.total_memories
-            .iter()
-            .for_each(|(_, gauge)| gauge.dec());
     }
 
     /// Record a cache hit
@@ -329,7 +348,6 @@ impl RememnosyneMetrics {
 }
 
 // Re-export labels for use in engine - they're already public in this module
-// Users can access them via crate::metrics::MemoryTypeLabel etc.
 
 #[cfg(test)]
 mod tests {

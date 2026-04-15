@@ -48,6 +48,34 @@ jobs:
       - name: Test with all-pure-Rust features
         run: cargo test --features "entity-resolution,backup-export,metrics,http-server,config-file,structured-logging,sharding,read-replicas,compaction,auto-pruning" --verbose
 
+  cross-compile:
+    name: Cross-compile (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cross-build (default features, aarch64)
+        run: cross build --target aarch64-unknown-linux-gnu --verbose
+
+      - name: Cross-build (pure-Rust features, aarch64)
+        run: cross build --target aarch64-unknown-linux-gnu --features "entity-resolution,sharding,compaction,auto-pruning" --verbose
+
+      - name: Cross-test (default features, aarch64 via QEMU)
+        run: cross test --target aarch64-unknown-linux-gnu --verbose
+
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest

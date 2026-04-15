@@ -295,7 +295,8 @@ impl ShardedMemoryStore {
             | MemoryType::GapDocumentation
             | MemoryType::NarrativeThread
             | MemoryType::EvidenceChain
-            | MemoryType::CounterNarrative => EntityType::Concept,
+            | MemoryType::CounterNarrative
+            | MemoryType::Checkpoint => EntityType::Concept,
         }
     }
 

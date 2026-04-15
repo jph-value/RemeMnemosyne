@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_should_checkpoint_time_trigger() {
-        let mut store = CheckpointStore::with_defaults();
+        let store = CheckpointStore::with_defaults();
         let now = Utc::now();
 
         // Recent last checkpoint — no time trigger

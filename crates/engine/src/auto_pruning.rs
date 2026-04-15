@@ -135,10 +135,11 @@ impl AutoPruner {
         let start = std::time::Instant::now();
 
         if !self.config.enabled {
+            let total = memories.len();
             return Ok((
                 memories,
                 AutoPruneStats {
-                    total_evaluated: memories.len(),
+                    total_evaluated: total,
                     pruned_by_importance: 0,
                     pruned_by_age: 0,
                     pruned_by_access: 0,

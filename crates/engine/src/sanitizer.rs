@@ -1,6 +1,6 @@
-/// Input sanitization for memory operations.
-/// Detects and neutralizes prompt injection attempts before they
-/// reach the LLM context assembly pipeline.
+//! Input sanitization for memory operations.
+//! Detects and neutralizes prompt injection attempts before they
+//! reach the LLM context assembly pipeline.
 
 /// Patterns that indicate prompt injection attempts
 const INJECTION_PATTERNS: &[&str] = &[

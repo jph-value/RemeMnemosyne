@@ -1,4 +1,3 @@
-use rememnemosyne_core::math::cosine_similarity;
 /// Layered Context Loading Stack (L0-L4)
 ///
 /// Implements mempalace's layered context loading strategy to minimize
@@ -13,6 +12,7 @@ use rememnemosyne_core::math::cosine_similarity;
 /// - L4 (Deep Search): Full semantic queries across all data. Explicit request.
 ///
 /// This yields ~10x token efficiency compared to loading everything.
+use rememnemosyne_core::math::cosine_similarity;
 use rememnemosyne_core::{EntityId, MemoryArtifact, MemoryId, PalaceLocation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -99,6 +99,7 @@ impl ContextLayer {
 
 /// Context levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
 pub enum ContextLevel {
     /// L0: Identity (~50 tokens, always loaded)
     L0_Identity,

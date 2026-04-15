@@ -8,12 +8,16 @@
 /// ```text
 /// archive/
 /// ├── catalog.json       # Uncompressed: ID -> {offset, size, summary, tags, importance, timestamp}
-/// ├── data.bin           # Zstd-compressed chunks, each prefixed with 4-byte length
+/// ├── data.bin           # Zstd-compressed chunks, each prefixed with 8-byte length (v2+)
 /// └── lock               # Lock file for concurrent access
 /// ```
 ///
 /// The catalog stores metadata without decompression so you can search/filter
 /// archived memories without touching the compressed data.
+///
+/// ## Format versions
+/// - v1 (legacy): 4-byte `u32` length prefix per chunk. No version field in catalog.
+/// - v2 (current): 8-byte `u64` length prefix per chunk. `format_version: 2` in catalog.
 use chrono::{DateTime, Utc};
 #[cfg(test)]
 use rememnemosyne_core::MemoryTrigger;
@@ -23,6 +27,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+
+/// Current on-disk format version.
+/// v1 = 4-byte length prefix (legacy). v2 = 8-byte length prefix (current).
+const ARCHIVE_FORMAT_VERSION: u32 = 2;
+
+/// Length of the chunk length prefix in bytes (8 for v2 format).
+const LENGTH_PREFIX_SIZE: u64 = 8;
 
 /// Lightweight metadata for archived memories.
 /// Stored uncompressed in the catalog for fast filtering without decompression.
@@ -44,6 +55,11 @@ pub struct ArchiveEntry {
 /// Catalog that maps memory IDs to their archive entries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveCatalog {
+    /// Format version for backward/forward compatibility.
+    /// v1 (absent or 1): 4-byte `u32` length prefix per chunk.
+    /// v2: 8-byte `u64` length prefix per chunk.
+    #[serde(default = "default_format_version")]
+    pub format_version: u32,
     pub entries: HashMap<MemoryId, ArchiveEntry>,
     pub total_entries: usize,
     pub total_original_bytes: u64,
@@ -52,10 +68,15 @@ pub struct ArchiveCatalog {
     pub updated_at: DateTime<Utc>,
 }
 
+fn default_format_version() -> u32 {
+    1 // v1 is default for backward compat when field is absent
+}
+
 impl ArchiveCatalog {
     fn new() -> Self {
         let now = Utc::now();
         Self {
+            format_version: ARCHIVE_FORMAT_VERSION,
             entries: HashMap::new(),
             total_entries: 0,
             total_original_bytes: 0,
@@ -110,9 +131,47 @@ impl MemoryArchive {
         let catalog_path = config.archive_dir.join("catalog.json");
         let data_path = config.archive_dir.join("data.bin");
 
-        let catalog = if catalog_path.exists() {
+        let mut catalog = if catalog_path.exists() {
             let data = fs::read_to_string(&catalog_path)?;
-            serde_json::from_str(&data).unwrap_or_else(|_| ArchiveCatalog::new())
+            let mut cat: ArchiveCatalog =
+                serde_json::from_str(&data).unwrap_or_else(|_| ArchiveCatalog::new());
+            // Migration: if catalog was v1 (4-byte prefixes), migrate data file to v2 (8-byte)
+            if cat.format_version < ARCHIVE_FORMAT_VERSION && !cat.entries.is_empty() {
+                if let Err(e) =
+                    Self::migrate_data_file(&data_path, cat.format_version, ARCHIVE_FORMAT_VERSION)
+                {
+                    tracing::warn!(
+                        "Archive format migration v{} -> v{} failed: {}. Rebuilding from scratch.",
+                        cat.format_version,
+                        ARCHIVE_FORMAT_VERSION,
+                        e
+                    );
+                } else {
+                    cat.format_version = ARCHIVE_FORMAT_VERSION;
+                    // Recalculate offsets: each entry shifted by (8 - 4) = 4 bytes per preceding entry
+                    let prefix_delta: u64 = (LENGTH_PREFIX_SIZE - 4) as u64;
+                    let mut entries: Vec<_> = cat.entries.iter_mut().collect();
+                    entries.sort_by_key(|(_, e)| e.offset);
+                    let mut cumulative_shift: u64 = 0;
+                    for (_, entry) in entries {
+                        // This entry's original offset points past the old 4-byte prefix.
+                        // The actual compressed data started at `offset`, so the chunk
+                        // started at `offset - 4` in v1. In v2 the prefix is 8 bytes,
+                        // so new data start = (old_data_start) + cumulative_shift = (offset - 4) + cumulative_shift.
+                        // New offset = new_data_start + 8 = (offset - 4) + cumulative_shift + 8.
+                        cumulative_shift += prefix_delta;
+                        let old_data_start = entry.offset - 4;
+                        entry.offset = old_data_start + cumulative_shift + LENGTH_PREFIX_SIZE;
+                    }
+                    let _ = fs::write(
+                        &catalog_path,
+                        serde_json::to_string_pretty(&cat).unwrap_or_default(),
+                    );
+                }
+            } else if cat.entries.is_empty() {
+                cat.format_version = ARCHIVE_FORMAT_VERSION;
+            }
+            cat
         } else {
             ArchiveCatalog::new()
         };
@@ -150,8 +209,8 @@ impl MemoryArchive {
             .append(true)
             .open(&self.data_path)?;
 
-        // Write length prefix + compressed data
-        let len_bytes = (compressed_size as u32).to_le_bytes();
+        // Write length prefix (8-byte u64 for v2 format, safe for large chunks)
+        let len_bytes = compressed_size.to_le_bytes();
         data_file.write_all(&len_bytes)?;
         data_file.write_all(&compressed)?;
         data_file.flush()?;
@@ -166,7 +225,7 @@ impl MemoryArchive {
             timestamp: memory.timestamp,
             access_count: memory.access_count,
             content_length: memory.content.len(),
-            offset: offset + 4, // Skip the 4-byte length prefix
+            offset: offset + LENGTH_PREFIX_SIZE,
             compressed_size,
             original_size,
         };
@@ -207,7 +266,7 @@ impl MemoryArchive {
             // Current file offset = current length before we write
             let offset = data_file.stream_position()?;
 
-            let len_bytes = (compressed.len() as u32).to_le_bytes();
+            let len_bytes = (compressed.len() as u64).to_le_bytes();
             data_file.write_all(&len_bytes)?;
             data_file.write_all(&compressed)?;
 
@@ -220,7 +279,7 @@ impl MemoryArchive {
                 timestamp: memory.timestamp,
                 access_count: memory.access_count,
                 content_length: memory.content.len(),
-                offset: offset + 4,
+                offset: offset + LENGTH_PREFIX_SIZE,
                 compressed_size: compressed.len() as u64,
                 original_size: serialized.len() as u64,
             };
@@ -401,13 +460,13 @@ impl MemoryArchive {
             let mut compressed = vec![0u8; *compressed_size as usize];
             data_file.read_exact(&mut compressed)?;
 
-            // Write to new file with length prefix
-            let len_bytes = (*compressed_size as u32).to_le_bytes();
+            // Write to new file with 8-byte length prefix (v2 format)
+            let len_bytes = compressed_size.to_le_bytes();
             temp_file.write_all(&len_bytes)?;
             temp_file.write_all(&compressed)?;
 
-            new_offsets.push((*id, new_offset + 4));
-            new_offset += 4 + compressed_size;
+            new_offsets.push((*id, new_offset + LENGTH_PREFIX_SIZE));
+            new_offset += LENGTH_PREFIX_SIZE + compressed_size;
         }
 
         temp_file.flush()?;
@@ -437,6 +496,52 @@ impl MemoryArchive {
     fn flush_catalog(&self) -> io::Result<()> {
         let json = serde_json::to_string_pretty(&self.catalog)?;
         fs::write(&self.catalog_path, json)?;
+        Ok(())
+    }
+
+    /// Migrate the data file from an older format version to the current one.
+    ///
+    /// v1 -> v2: Rewrite 4-byte length prefixes as 8-byte length prefixes.
+    /// The catalog offsets are adjusted after migration.
+    fn migrate_data_file(
+        data_path: &PathBuf,
+        from_version: u32,
+        to_version: u32,
+    ) -> io::Result<()> {
+        if from_version == to_version {
+            return Ok(());
+        }
+
+        // v1 -> v2: rewrite 4-byte prefixes as 8-byte
+        if from_version == 1 && to_version == 2 && data_path.exists() {
+            let data = fs::read(&data_path)?;
+            let mut temp_path = data_path.clone();
+            temp_path.set_extension("bin migrating");
+
+            let mut out = BufWriter::new(fs::File::create(&temp_path)?);
+            let mut pos: usize = 0;
+            while pos + 4 <= data.len() {
+                let len_u32 =
+                    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+                        as u64;
+                pos += 4;
+
+                if pos + len_u32 as usize > data.len() {
+                    break;
+                }
+
+                // Write 8-byte length prefix
+                out.write_all(&len_u32.to_le_bytes())?;
+                out.write_all(&data[pos..pos + len_u32 as usize])?;
+
+                pos += len_u32 as usize;
+            }
+            out.flush()?;
+            drop(out);
+
+            fs::rename(&temp_path, data_path)?;
+        }
+
         Ok(())
     }
 }

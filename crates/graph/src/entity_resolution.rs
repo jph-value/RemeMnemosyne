@@ -265,6 +265,7 @@ impl EntityResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rememnemosyne_core::EntityType;
 
     #[cfg(feature = "entity-resolution")]
     #[test]

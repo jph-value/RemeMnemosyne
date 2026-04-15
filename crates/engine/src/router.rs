@@ -96,7 +96,9 @@ impl MemoryRouter {
                 Default::default(),
             ))),
             embedder: Arc::new(parking_lot::RwLock::new(embedder)),
-            checkpoint_store: Arc::new(parking_lot::RwLock::new(CheckpointStore::new(checkpoint_config))),
+            checkpoint_store: Arc::new(parking_lot::RwLock::new(CheckpointStore::new(
+                checkpoint_config,
+            ))),
             ssc_router: Arc::new(parking_lot::RwLock::new(SSCRouter::new(ssc_router_config))),
         }
     }
@@ -144,11 +146,12 @@ impl MemoryRouter {
 
         // MC Phase 1+3: Checkpoint-aware coarse search
         // Collect memory IDs from expanded checkpoints for boost scoring
-        let boosted_memory_ids: std::collections::HashSet<uuid::Uuid> = if let Some(ref qe) = query_embedding {
-            self.checkpoint_aware_search(qe)
-        } else {
-            std::collections::HashSet::new()
-        };
+        let boosted_memory_ids: std::collections::HashSet<uuid::Uuid> =
+            if let Some(ref qe) = query_embedding {
+                self.checkpoint_aware_search(qe)
+            } else {
+                std::collections::HashSet::new()
+            };
 
         // Query semantic memory (uses HNSW via enriched embedding)
         if let Ok(semantic_results) = self.semantic.query(&enriched_query).await {
@@ -222,7 +225,10 @@ impl MemoryRouter {
     ///
     /// Returns the set of memory IDs that should receive a relevance boost
     /// because they belong to expanded (high-relevance) checkpoints.
-    fn checkpoint_aware_search(&self, query_embedding: &[f32]) -> std::collections::HashSet<uuid::Uuid> {
+    fn checkpoint_aware_search(
+        &self,
+        query_embedding: &[f32],
+    ) -> std::collections::HashSet<uuid::Uuid> {
         let mut boosted_ids = std::collections::HashSet::new();
 
         let checkpoint_store = self.checkpoint_store.read();
@@ -288,17 +294,23 @@ impl MemoryRouter {
 
         // MC Phase 1: Increment checkpoint counter and check if we should create a checkpoint
         {
-            let checkpoint_store = self.checkpoint_store.write();
-            checkpoint_store.increment_memory_counter();
-            let now = chrono::Utc::now();
-            if checkpoint_store.should_checkpoint(0, now) {
-                // Collect recent memories for checkpoint creation
-                // Use the stored artifact plus the threshold count
-                let threshold = checkpoint_store.config().memory_threshold;
-                let recent = self.collect_recent_memories_for_checkpoint(threshold);
+            let should_create = {
+                let checkpoint_store = self.checkpoint_store.write();
+                checkpoint_store.increment_memory_counter();
+                checkpoint_store.should_checkpoint(0, chrono::Utc::now())
+            };
+            if should_create {
+                let (threshold, session_id) = {
+                    let checkpoint_store = self.checkpoint_store.read();
+                    (
+                        checkpoint_store.config().memory_threshold,
+                        artifact.session_id,
+                    )
+                };
+                let recent = self.collect_recent_memories_for_checkpoint(threshold).await;
                 if !recent.is_empty() {
-                    let checkpoint = checkpoint_store.create_checkpoint(&recent, artifact.session_id.clone());
-                    // Register the new checkpoint with the SSC router
+                    let checkpoint_store = self.checkpoint_store.write();
+                    let checkpoint = checkpoint_store.create_checkpoint(&recent, session_id);
                     self.ssc_router.write().register_checkpoint(&checkpoint);
                 }
             }
@@ -309,20 +321,13 @@ impl MemoryRouter {
 
     /// Collect recent memories for checkpoint creation.
     ///
-    /// Attempts to retrieve recent memories from the semantic store.
-    /// Falls back to using only the most recently stored item if
-    /// the semantic store query fails (cold start protection).
-    fn collect_recent_memories_for_checkpoint(&self, count: usize) -> Vec<MemoryArtifact> {
-        // Query recent memories from semantic store
-        let recent_query = MemoryQuery::new()
-            .with_limit(count)
-            .with_text("__recent__");
+    /// Queries the semantic store for recent memories to include in
+    /// a checkpoint. Falls back to an empty vec if the query fails
+    /// (cold start protection).
+    async fn collect_recent_memories_for_checkpoint(&self, count: usize) -> Vec<MemoryArtifact> {
+        let recent_query = MemoryQuery::new().with_limit(count).with_text("__recent__");
 
-        // Use a blocking approach since we're already in an async context
-        // but need synchronous access to the semantic store for checkpoint creation
-        let rt = tokio::runtime::Handle::current();
-        let semantic = self.semantic.clone();
-        match rt.block_on(semantic.query(&recent_query)) {
+        match self.semantic.query(&recent_query).await {
             Ok(memories) => memories.into_iter().take(count).collect(),
             Err(_) => Vec::new(),
         }

@@ -95,7 +95,8 @@ impl MemoryCompactor {
                 std::collections::HashMap::new();
 
             for memory in &memories {
-                let entity_key = memory.entities.clone();
+                let entity_key: Vec<String> =
+                    memory.entities.iter().map(|e| e.name.clone()).collect();
                 entity_groups
                     .entry(entity_key)
                     .or_default()
@@ -184,7 +185,7 @@ impl MemoryCompactor {
 
             // Merge entities
             for entity in &memory.entities {
-                if !merged_entities.contains(entity) {
+                if !merged_entities.iter().any(|e| e.id == entity.id) {
                     merged_entities.push(entity.clone());
                 }
             }
