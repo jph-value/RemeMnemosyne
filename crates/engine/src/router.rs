@@ -1,7 +1,7 @@
 use crate::providers::{EmbeddingProviderRouter, EmbeddingRequest};
-use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher};
+use rememnemosyne_cognitive::{ContextPredictor, MemoryPrefetcher, SSCRouter, SSCRouterConfig};
 use rememnemosyne_core::*;
-use rememnemosyne_episodic::EpisodicMemoryStore;
+use rememnemosyne_episodic::{CheckpointConfig, CheckpointStore, EpisodicMemoryStore};
 use rememnemosyne_graph::{entity::GraphEntity, GraphMemoryStore};
 use rememnemosyne_semantic::SemanticMemoryStore;
 use rememnemosyne_temporal::{TemporalEvent, TemporalMemoryStore};
@@ -18,6 +18,10 @@ pub struct MemoryRouterConfig {
     pub embedding_dimensions: usize,
     /// Embedding provider configuration
     pub embedding_config: Option<EmbeddingProviderConfig>,
+    /// Memory Caching checkpoint configuration (Phase 1)
+    pub checkpoint_config: CheckpointConfig,
+    /// Memory Caching SSC router configuration (Phase 3)
+    pub ssc_router_config: SSCRouterConfig,
 }
 
 impl Default for MemoryRouterConfig {
@@ -27,8 +31,10 @@ impl Default for MemoryRouterConfig {
             enable_prefetch: true,
             prefetch_threshold: 0.5,
             combine_scores: true,
-            embedding_dimensions: 384, // Match default embedding dimensions
+            embedding_dimensions: 384,
             embedding_config: None,
+            checkpoint_config: CheckpointConfig::default(),
+            ssc_router_config: SSCRouterConfig::default(),
         }
     }
 }
@@ -38,6 +44,10 @@ impl Default for MemoryRouterConfig {
 /// Uses the EmbeddingProviderRouter for generating embeddings,
 /// supporting pluggable embedding providers (OpenAI, Voyage, Cohere,
 /// Ollama, Candle/local, or hash fallback).
+///
+/// Memory Caching (MC) integration:
+/// - CheckpointStore: Provides coarse O(N) segment search before fine O(M) HNSW retrieval
+/// - SSCRouter: Sparse Selective Caching router for Top-k checkpoint selection
 pub struct MemoryRouter {
     config: MemoryRouterConfig,
     pub semantic: Arc<SemanticMemoryStore>,
@@ -48,6 +58,10 @@ pub struct MemoryRouter {
     prefetcher: Arc<parking_lot::RwLock<MemoryPrefetcher>>,
     /// Pluggable embedding provider
     embedder: Arc<parking_lot::RwLock<EmbeddingProviderRouter>>,
+    /// MC Phase 1: Segment checkpointing for coarse search
+    checkpoint_store: Arc<parking_lot::RwLock<CheckpointStore>>,
+    /// MC Phase 3: SSC router for Top-k checkpoint selection
+    ssc_router: Arc<parking_lot::RwLock<SSCRouter>>,
 }
 
 impl MemoryRouter {
@@ -66,6 +80,9 @@ impl MemoryRouter {
             EmbeddingProviderRouter::new(Arc::new(HashEmbedder::new(config.embedding_dimensions)))
         };
 
+        let checkpoint_config = config.checkpoint_config.clone();
+        let ssc_router_config = config.ssc_router_config.clone();
+
         Self {
             config,
             semantic,
@@ -79,10 +96,20 @@ impl MemoryRouter {
                 Default::default(),
             ))),
             embedder: Arc::new(parking_lot::RwLock::new(embedder)),
+            checkpoint_store: Arc::new(parking_lot::RwLock::new(CheckpointStore::new(checkpoint_config))),
+            ssc_router: Arc::new(parking_lot::RwLock::new(SSCRouter::new(ssc_router_config))),
         }
     }
 
     /// Query all memory stores with unified result
+    ///
+    /// Memory Caching flow (when checkpoints exist):
+    /// 1. Generate query embedding
+    /// 2. SSC router selects Top-k checkpoints (coarse O(N) search)
+    /// 3. Expand high-relevance checkpoints into individual memory IDs
+    /// 4. Query HNSW with the query embedding (fine O(M) search)
+    /// 5. Apply checkpoint boost (1.3× soft multiplier) to memories from expanded checkpoints
+    /// 6. Combine, rank, and predict next memories
     pub async fn query(&self, query: &MemoryQuery) -> Result<MemoryResponse> {
         let mut response = MemoryResponse::new();
 
@@ -115,13 +142,25 @@ impl MemoryRouter {
             query.clone()
         };
 
+        // MC Phase 1+3: Checkpoint-aware coarse search
+        // Collect memory IDs from expanded checkpoints for boost scoring
+        let boosted_memory_ids: std::collections::HashSet<uuid::Uuid> = if let Some(ref qe) = query_embedding {
+            self.checkpoint_aware_search(qe)
+        } else {
+            std::collections::HashSet::new()
+        };
+
         // Query semantic memory (uses HNSW via enriched embedding)
         if let Ok(semantic_results) = self.semantic.query(&enriched_query).await {
             for memory in semantic_results
                 .into_iter()
                 .take(self.config.max_results_per_store)
             {
-                let relevance = memory.compute_relevance();
+                let mut relevance = memory.compute_relevance();
+                // MC checkpoint boost: 1.3× soft multiplier for memories in expanded checkpoints
+                if boosted_memory_ids.contains(&memory.id) {
+                    relevance *= 1.3;
+                }
                 response.add_result(memory, MemoryType::Semantic, relevance);
             }
         }
@@ -132,7 +171,10 @@ impl MemoryRouter {
                 .into_iter()
                 .take(self.config.max_results_per_store)
             {
-                let relevance = memory.compute_relevance();
+                let mut relevance = memory.compute_relevance();
+                if boosted_memory_ids.contains(&memory.id) {
+                    relevance *= 1.3;
+                }
                 response.add_result(memory, MemoryType::Episodic, relevance);
             }
         }
@@ -175,7 +217,60 @@ impl MemoryRouter {
         Ok(response)
     }
 
+    /// MC Checkpoint-aware search: coarse O(N) checkpoint selection
+    /// followed by expansion of high-relevance checkpoints.
+    ///
+    /// Returns the set of memory IDs that should receive a relevance boost
+    /// because they belong to expanded (high-relevance) checkpoints.
+    fn checkpoint_aware_search(&self, query_embedding: &[f32]) -> std::collections::HashSet<uuid::Uuid> {
+        let mut boosted_ids = std::collections::HashSet::new();
+
+        let checkpoint_store = self.checkpoint_store.read();
+
+        // If no checkpoints exist, skip MC search (cold start: falls through to HNSW)
+        if checkpoint_store.is_empty() {
+            return boosted_ids;
+        }
+
+        // Step 1: Get all checkpoint IDs for SSC routing
+        let all_checkpoint_ids = checkpoint_store.list_checkpoint_ids();
+        if all_checkpoint_ids.is_empty() {
+            return boosted_ids;
+        }
+
+        // Step 2: SSC Route — select Top-k most relevant checkpoints
+        let expansion_threshold = checkpoint_store.config().expansion_threshold;
+        let routed = {
+            let ssc_router = self.ssc_router.read();
+            ssc_router.route_with_scores(query_embedding, &all_checkpoint_ids)
+        };
+
+        // Step 3: Expand high-relevance checkpoints (above expansion threshold)
+        for (checkpoint_id, score) in &routed {
+            if *score >= expansion_threshold {
+                let memory_ids = checkpoint_store.expand_checkpoint(*checkpoint_id);
+                for id in memory_ids {
+                    boosted_ids.insert(id);
+                }
+            }
+        }
+
+        // Mark routed checkpoints as accessed (for eviction decisions)
+        {
+            let ssc_router = self.ssc_router.read();
+            for (checkpoint_id, _) in &routed {
+                ssc_router.mark_accessed(checkpoint_id);
+            }
+        }
+
+        boosted_ids
+    }
+
     /// Store a memory artifact in all relevant stores
+    ///
+    /// Also handles MC Phase 1 checkpoint creation: when the memory count
+    /// threshold or time threshold is met, a checkpoint is created and
+    /// registered with the SSC router.
     pub async fn store(&self, artifact: MemoryArtifact) -> Result<MemoryId> {
         let id = artifact.id;
 
@@ -191,7 +286,46 @@ impl MemoryRouter {
             prefetcher.register_memory(id, artifact.embedding.clone(), &artifact.tags);
         }
 
+        // MC Phase 1: Increment checkpoint counter and check if we should create a checkpoint
+        {
+            let checkpoint_store = self.checkpoint_store.write();
+            checkpoint_store.increment_memory_counter();
+            let now = chrono::Utc::now();
+            if checkpoint_store.should_checkpoint(0, now) {
+                // Collect recent memories for checkpoint creation
+                // Use the stored artifact plus the threshold count
+                let threshold = checkpoint_store.config().memory_threshold;
+                let recent = self.collect_recent_memories_for_checkpoint(threshold);
+                if !recent.is_empty() {
+                    let checkpoint = checkpoint_store.create_checkpoint(&recent, artifact.session_id.clone());
+                    // Register the new checkpoint with the SSC router
+                    self.ssc_router.write().register_checkpoint(&checkpoint);
+                }
+            }
+        }
+
         Ok(id)
+    }
+
+    /// Collect recent memories for checkpoint creation.
+    ///
+    /// Attempts to retrieve recent memories from the semantic store.
+    /// Falls back to using only the most recently stored item if
+    /// the semantic store query fails (cold start protection).
+    fn collect_recent_memories_for_checkpoint(&self, count: usize) -> Vec<MemoryArtifact> {
+        // Query recent memories from semantic store
+        let recent_query = MemoryQuery::new()
+            .with_limit(count)
+            .with_text("__recent__");
+
+        // Use a blocking approach since we're already in an async context
+        // but need synchronous access to the semantic store for checkpoint creation
+        let rt = tokio::runtime::Handle::current();
+        let semantic = self.semantic.clone();
+        match rt.block_on(semantic.query(&recent_query)) {
+            Ok(memories) => memories.into_iter().take(count).collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Get memory by ID from any store
@@ -332,6 +466,16 @@ impl MemoryRouter {
     /// Get embedding dimensions
     pub fn embedding_dimensions(&self) -> usize {
         self.config.embedding_dimensions
+    }
+
+    /// Get a reference to the checkpoint store (MC Phase 1)
+    pub fn checkpoint_store(&self) -> &Arc<parking_lot::RwLock<CheckpointStore>> {
+        &self.checkpoint_store
+    }
+
+    /// Get a reference to the SSC router (MC Phase 3)
+    pub fn ssc_router(&self) -> &Arc<parking_lot::RwLock<SSCRouter>> {
+        &self.ssc_router
     }
 }
 

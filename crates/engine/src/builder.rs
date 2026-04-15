@@ -359,6 +359,9 @@ impl RememnosyneEngine {
     }
 
     /// Recall memories based on query
+    ///
+    /// Uses MC Gated Residual Memory (GRM) weights when a query embedding
+    /// is available, falling back to standard context assembly when not.
     pub async fn recall(&self, query: &str) -> Result<ContextBundle> {
         // Sanitize query before processing
         let sanitized = crate::sanitizer::sanitize_input(query);
@@ -377,9 +380,18 @@ impl RememnosyneEngine {
             .with_limit(self.config.context.max_memories);
 
         let response = self.router.query(&mem_query).await?;
-        let bundle = self
-            .context_builder
-            .build_context(&response, vec![], vec![]);
+
+        // Generate embedding for MC-gated context assembly
+        let query_embedding = self.generate_embedding(safe_query).await;
+
+        let bundle = if !query_embedding.is_empty() {
+            // MC Phase 2: Gated Context Assembly — use contribution weights
+            self.context_builder
+                .build_context_weighted(&response, vec![], vec![], &query_embedding)
+        } else {
+            // Cold start: fall through to standard assembly
+            self.context_builder.build_context(&response, vec![], vec![])
+        };
 
         Ok(bundle)
     }
@@ -539,6 +551,11 @@ impl MnemosyneBuilder {
 
     pub fn with_context_config(mut self, config: ContextBuilderConfig) -> Self {
         self.config.context = config;
+        self
+    }
+
+    pub fn with_router_config(mut self, config: MemoryRouterConfig) -> Self {
+        self.config.router = config;
         self
     }
 

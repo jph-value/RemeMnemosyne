@@ -1,6 +1,7 @@
 pub mod api;
 pub mod builder;
 pub mod context;
+pub mod context_stack;
 pub mod pruner;
 pub mod router;
 pub mod sanitizer;

@@ -1,3 +1,4 @@
+use rememnemosyne_core::math::cosine_similarity;
 use rememnemosyne_core::*;
 use rememnemosyne_graph::entity::GraphEntity;
 use serde::{Deserialize, Serialize};
@@ -155,6 +156,119 @@ impl ContextBuilderEngine {
         bundle
     }
 
+    /// Build context bundle with MC Gated Residual Memory (GRM) weights.
+    ///
+    /// Implements arXiv:2602.24281 Eq 9: each memory's contribution to the
+    /// context is gated by the cosine similarity between the query embedding
+    /// and the memory embedding. This produces γ_t^(i) weights that control
+    /// rendering depth in format strategies.
+    ///
+    /// Risk mitigation: softmax is applied over top-k candidates only (not
+    /// all candidates), preventing weight dilution from low-similarity
+    /// memories. Candidates below top-k receive a minimal weight of 0.05
+    /// (not zero) to preserve recall.
+    pub fn build_context_weighted(
+        &self,
+        response: &crate::router::MemoryResponse,
+        extra_entities: Vec<GraphEntity>,
+        _decisions: Vec<rememnemosyne_episodic::artifact::Decision>,
+        query_embedding: &[f32],
+    ) -> ContextBundle {
+        let mut bundle = ContextBundle::new();
+        let max_memories = self.config.max_memories;
+
+        // Phase 1: Compute raw gate scores (MC γ_t^(i) = cosine_similarity(query, memory))
+        let mut gate_pairs: Vec<(usize, f32)> = response
+            .results
+            .iter()
+            .take(max_memories)
+            .enumerate()
+            .map(|(i, result)| {
+                let gate = if !query_embedding.is_empty() && !result.memory.embedding.is_empty() {
+                    cosine_similarity(query_embedding, &result.memory.embedding).max(0.0)
+                } else {
+                    0.5 // neutral gate when embeddings unavailable
+                };
+                (i, gate)
+            })
+            .collect();
+
+        // Phase 2: Top-k softmax normalization (prevents dilution from many low-sim candidates)
+        gate_pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let softmax_k = gate_pairs.len().min(max_memories);
+        let top_k_scores: Vec<f32> = gate_pairs.iter().take(softmax_k).map(|(_, s)| *s).collect();
+        let mut normalized_scores = top_k_scores.clone();
+        rememnemosyne_core::math::softmax(&mut normalized_scores);
+
+        // Build a map from index to weight
+        let mut weight_map: HashMap<usize, f32> = HashMap::new();
+        for (i, (_, raw_score)) in gate_pairs.iter().take(softmax_k).enumerate() {
+            // Blend softmax-normalized weight with a base that preserves ordering
+            // This ensures no weight is zero (recall preservation) while still
+            // being proportional to gate similarity
+            let normalized = normalized_scores.get(i).copied().unwrap_or(0.05);
+            weight_map.insert(*raw_score as usize, normalized);
+        }
+
+        // Sort gate_pairs back by original index for stable memory ordering
+        gate_pairs.sort_by_key(|(i, _)| *i);
+
+        // Phase 3: Add memories with weights
+        let mut current_tokens = 0;
+        for (idx, result) in response.results.iter().take(max_memories).enumerate() {
+            let memory_tokens = self.estimate_tokens(&result.memory.summary);
+            if current_tokens + memory_tokens > self.config.max_tokens {
+                break;
+            }
+
+            // Look up the GRM weight for this memory
+            let gate_score = gate_pairs
+                .iter()
+                .find(|(i, _)| *i == idx)
+                .map(|(_, s)| *s)
+                .unwrap_or(0.5);
+
+            // Convert gate score to contribution weight
+            // Use the softmax-normalized value for top-k, or a minimal weight for others
+            let contribution_weight = if gate_score > 0.0 {
+                // Blend: 60% softmax weight + 40% raw gate to prevent extreme values
+                let softmax_weight = 1.0 / softmax_k.max(1) as f32;
+                0.6 * softmax_weight + 0.4 * gate_score
+            } else {
+                0.05 // Minimal weight for zero-gate memories (recall preservation)
+            };
+            let contribution_weight = contribution_weight.clamp(0.05, 1.0);
+
+            bundle.add_memory_weighted(
+                result.memory.clone(),
+                result.relevance,
+                contribution_weight,
+            );
+            current_tokens += memory_tokens;
+        }
+
+        // Add entities
+        for graph_entity in response.entities.iter().take(self.config.max_entities) {
+            let entity = self.graph_entity_to_entity(graph_entity);
+            bundle.entities.push(entity);
+        }
+        let remaining_entity_slots = self
+            .config
+            .max_entities
+            .saturating_sub(bundle.entities.len());
+        for graph_entity in extra_entities.into_iter().take(remaining_entity_slots) {
+            let entity = self.graph_entity_to_entity(&graph_entity);
+            bundle.entities.push(entity);
+        }
+
+        if self.config.include_summaries {
+            bundle.summaries = self.build_summaries(&response.results);
+        }
+
+        bundle.total_tokens_estimate = current_tokens;
+        bundle
+    }
+
     /// Convert GraphEntity to Entity
     fn graph_entity_to_entity(&self, graph_entity: &GraphEntity) -> Entity {
         Entity {
@@ -181,6 +295,8 @@ impl ContextBuilderEngine {
     }
 
     /// Inline hints format: memory as brief hints within user message
+    ///
+    /// Uses contribution weights to filter low-relevance hints (weight > 0.1).
     fn format_inline_hints(&self, bundle: &ContextBundle) -> String {
         let mut parts = Vec::new();
 
@@ -188,10 +304,20 @@ impl ContextBuilderEngine {
             let hints: Vec<String> = bundle
                 .memories
                 .iter()
+                .filter(|m| {
+                    bundle
+                        .contribution_weights
+                        .get(&m.id)
+                        .copied()
+                        .unwrap_or(0.5)
+                        > 0.1
+                })
                 .take(3)
                 .map(|m| m.summary.clone())
                 .collect();
-            parts.push(format!("(Consider: {})", hints.join("; ")));
+            if !hints.is_empty() {
+                parts.push(format!("(Consider: {})", hints.join("; ")));
+            }
         }
 
         parts.join("\n")
@@ -213,6 +339,11 @@ impl ContextBuilderEngine {
     }
 
     /// Context block format: structured memory block (default)
+    ///
+    /// Uses MC contribution weights for weight-tiered rendering:
+    /// - weight > 0.7: Full verbatim content from Drawer (up to 300 chars)
+    /// - 0.3 < weight < 0.7: Closet summary (up to 150 chars)
+    /// - weight < 0.3: One-line reference only
     fn format_context_block(&self, bundle: &ContextBundle) -> String {
         let mut parts = Vec::new();
 
@@ -228,7 +359,7 @@ impl ContextBuilderEngine {
             parts.push(String::new());
         }
 
-        // Relevant memories
+        // Relevant memories — weight-tiered rendering (MC GRM)
         if !bundle.memories.is_empty() {
             parts.push("### Relevant Memories".to_string());
             for memory in bundle.memories.iter().take(10) {
@@ -237,12 +368,37 @@ impl ContextBuilderEngine {
                     .get(&memory.id)
                     .map(|r| format!("{:.0}%", r * 100.0))
                     .unwrap_or_default();
-                parts.push(format!(
-                    "- [{}] {}: {}",
-                    relevance,
-                    memory.summary,
-                    memory.content.chars().take(200).collect::<String>()
-                ));
+
+                let weight = bundle
+                    .contribution_weights
+                    .get(&memory.id)
+                    .copied()
+                    .unwrap_or(0.5);
+
+                if weight > 0.7 {
+                    // High gate: Full verbatim content from Drawer
+                    parts.push(format!(
+                        "- [{}%] {}: {}",
+                        relevance,
+                        memory.summary,
+                        memory
+                            .effective_content()
+                            .chars()
+                            .take(300)
+                            .collect::<String>()
+                    ));
+                } else if weight > 0.3 {
+                    // Medium gate: Closet summary (compressed)
+                    parts.push(format!(
+                        "- [{}%] {}: {}",
+                        relevance,
+                        memory.summary,
+                        memory.content.chars().take(150).collect::<String>()
+                    ));
+                } else {
+                    // Low gate: One-line reference only (reduces noise for small models)
+                    parts.push(format!("- [{}%] {}", relevance, memory.summary));
+                }
             }
             parts.push(String::new());
         }

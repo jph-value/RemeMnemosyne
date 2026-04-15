@@ -33,7 +33,7 @@ toml = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 
 [features]
-default = ["sled-storage", "archive"]
+default = ["sled-storage", "archive", "mc-checkpoints"]
 persistence = ["rememnemosyne-storage/persistence"]
 sled-storage = ["rememnemosyne-storage/sled-storage"]
 archive = ["rememnemosyne-storage/archive"]
@@ -49,6 +49,13 @@ read-replicas = ["rememnemosyne-storage/read-replicas"]
 compaction = []
 auto-pruning = []
 clone-tracking = ["dep:rememnemosyne-clone-tracker"]
+# Memory Caching features (arXiv:2602.24281)
+# mc-checkpoints: Segment checkpointing for coarse O(N) search before fine O(M) HNSW
+mc-checkpoints = []
+# mc-gated-context: GRM contribution weights for per-memory rendering depth
+mc-gated-context = []
+# mc-ssc: Sparse Selective Caching router for Top-k checkpoint selection
+mc-ssc = []
 
 [build-dependencies]
 rememnemosyne-clone-tracker = { path = "../clone-tracker", optional = true }

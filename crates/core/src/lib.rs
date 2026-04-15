@@ -1,5 +1,6 @@
 pub mod embedding;
 pub mod error;
+pub mod math;
 pub mod palace;
 pub mod query;
 pub mod traits;
@@ -8,6 +9,7 @@ pub mod types;
 
 pub use embedding::*;
 pub use error::{MemoryError, Result};
+pub use math::*;
 pub use palace::*;
 pub use query::*;
 pub use traits::*;

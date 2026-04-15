@@ -1,6 +1,7 @@
 use rememnemosyne_core::MemoryId;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 
 use crate::intent::IntentDetector;
 use crate::micro_embed::MicroEmbedder;
@@ -36,6 +37,9 @@ pub struct MemoryPrefetcher {
     memory_clusters: HashMap<String, Vec<MemoryId>>,
     /// Recently prefetched memories
     prefetch_cache: HashSet<MemoryId>,
+    /// MC query embedding cache: last query embedding for intent-based
+    /// prefetch routing (arXiv:2602.24281 Eq 10: u_t = x_t W_u).
+    last_query_embedding: RwLock<Vec<f32>>,
 }
 
 impl MemoryPrefetcher {
@@ -47,6 +51,7 @@ impl MemoryPrefetcher {
             memory_embeddings: HashMap::new(),
             memory_clusters: HashMap::new(),
             prefetch_cache: HashSet::new(),
+            last_query_embedding: RwLock::new(Vec::new()),
         }
     }
 
@@ -77,6 +82,7 @@ impl MemoryPrefetcher {
     /// Prefetch memories based on query text
     pub fn prefetch(&self, query: &str, _all_memory_ids: &[MemoryId]) -> Vec<MemoryId> {
         let query_embedding = self.embedder.embed(query);
+        *self.last_query_embedding.write().unwrap() = query_embedding.clone();
         let intents = self.intent_detector.detect(query);
 
         let mut candidates: Vec<(MemoryId, f32)> = Vec::new();
@@ -184,22 +190,74 @@ impl MemoryPrefetcher {
     // Private helper methods
 
     fn intent_based_prefetch(&self, intents: &[(String, f32)]) -> Vec<(MemoryId, f32)> {
-        let results = Vec::new();
+        let mut results = Vec::new();
 
-        for (intent, _score) in intents {
-            match intent.as_str() {
-                "recall" | "search" => {
-                    // Would boost memories tagged as relevant
-                    // Simplified for now
+        // MC intent routing: boost cluster similarity based on detected intent.
+        // This implements arXiv:2602.24281's observation that context-aware
+        // gating (γ) should incorporate both the query and the segment context.
+        for (intent, intent_score) in intents {
+            let boost = match intent.as_str() {
+                "recall" | "search" => 1.3, // Strong boost for retrieval intents
+                "analyze" => 1.1,           // Moderate boost for analytical intents
+                "remember" => 1.2,          // Moderate boost for storage intents
+                _ => 1.0,                   // No boost for other intents
+            };
+
+            for (cluster_name, cluster_ids) in &self.memory_clusters {
+                let centroid = self.get_cluster_centroid(cluster_name);
+                let sim = self
+                    .embedder
+                    .cosine_similarity(&self.last_query_embedding.read().unwrap(), &centroid);
+
+                let gated_sim = sim * boost;
+                if gated_sim >= self.config.similarity_threshold {
+                    for &id in cluster_ids {
+                        results.push((id, gated_sim * intent_score));
+                    }
                 }
-                "analyze" => {
-                    // Would boost analytical memories
-                }
-                _ => {}
             }
         }
 
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        results.dedup_by(|a, b| a.0 == b.0);
         results
+    }
+
+    /// Get the centroid embedding of a cluster (cached for efficiency).
+    fn get_cluster_centroid(&self, cluster_name: &str) -> Vec<f32> {
+        // Attempt to compute the centroid from registered memory embeddings
+        let ids = match self.memory_clusters.get(cluster_name) {
+            Some(ids) => ids,
+            None => return vec![0.0; 128], // Default dimension
+        };
+
+        let mut embeddings: Vec<&Vec<f32>> = Vec::new();
+        for id in ids.iter() {
+            if let Some(emb) = self.memory_embeddings.get(id) {
+                if !emb.is_empty() {
+                    embeddings.push(emb);
+                }
+            }
+        }
+
+        if embeddings.is_empty() {
+            return vec![0.0; 128];
+        }
+
+        let dims = embeddings[0].len();
+        let mut result = vec![0.0f32; dims];
+        for emb in &embeddings {
+            for (i, &val) in emb.iter().enumerate() {
+                if i < dims {
+                    result[i] += val;
+                }
+            }
+        }
+        let count = embeddings.len() as f32;
+        for val in result.iter_mut() {
+            *val /= count;
+        }
+        result
     }
 
     fn tag_based_prefetch(&self, query: &str) -> Vec<MemoryId> {

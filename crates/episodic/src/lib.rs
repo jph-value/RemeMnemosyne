@@ -1,9 +1,11 @@
 pub mod artifact;
+pub mod checkpoint;
 pub mod session;
 pub mod store;
 pub mod summarizer;
 
 pub use artifact::*;
+pub use checkpoint::*;
 pub use session::*;
 pub use store::*;
 pub use summarizer::*;

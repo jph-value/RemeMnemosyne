@@ -125,6 +125,8 @@ pub enum MemoryType {
     NarrativeThread,
     EvidenceChain,
     CounterNarrative,
+    // Memory Caching: segment checkpoint (arXiv:2602.24281)
+    Checkpoint,
 }
 
 impl std::fmt::Display for MemoryType {
@@ -140,6 +142,7 @@ impl std::fmt::Display for MemoryType {
             MemoryType::NarrativeThread => write!(f, "narrative_thread"),
             MemoryType::EvidenceChain => write!(f, "evidence_chain"),
             MemoryType::CounterNarrative => write!(f, "counter_narrative"),
+            MemoryType::Checkpoint => write!(f, "checkpoint"),
         }
     }
 }
@@ -504,6 +507,7 @@ pub enum EventType {
     Merged,
     Archived,
     Deleted,
+    Checkpoint,
     Custom(String),
 }
 
@@ -586,6 +590,12 @@ pub struct ContextBundle {
     pub relationships: Vec<Relationship>,
     pub temporal_events: Vec<MemoryEvent>,
     pub relevance_scores: HashMap<MemoryId, f32>,
+    /// MC Gated Residual Memory weights (arXiv:2602.24281 Eq 9).
+    /// γ_t^(i) — per-memory contribution weight determined by
+    /// query-memory similarity. Controls rendering depth in
+    /// format strategies: high weight → full content, low weight
+    /// → one-line reference.
+    pub contribution_weights: HashMap<MemoryId, f32>,
     pub total_tokens_estimate: usize,
 }
 
@@ -598,13 +608,27 @@ impl ContextBundle {
             relationships: Vec::new(),
             temporal_events: Vec::new(),
             relevance_scores: HashMap::new(),
+            contribution_weights: HashMap::new(),
             total_tokens_estimate: 0,
         }
     }
 
     pub fn add_memory(&mut self, memory: MemoryArtifact, relevance: f32) {
-        self.total_tokens_estimate += memory.summary.len() / 4; // Rough token estimate
+        self.total_tokens_estimate += memory.summary.len() / 4;
         self.relevance_scores.insert(memory.id, relevance);
+        self.memories.push(memory);
+    }
+
+    /// Add a memory with both relevance score and MC contribution weight.
+    ///
+    /// The contribution weight (γ) controls rendering depth in format strategies:
+    /// - γ > 0.7: Full verbatim content from Drawer
+    /// - 0.3 < γ < 0.7: Closet summary
+    /// - γ < 0.3: One-line reference only
+    pub fn add_memory_weighted(&mut self, memory: MemoryArtifact, relevance: f32, weight: f32) {
+        self.total_tokens_estimate += memory.summary.len() / 4;
+        self.relevance_scores.insert(memory.id, relevance);
+        self.contribution_weights.insert(memory.id, weight);
         self.memories.push(memory);
     }
 
@@ -623,26 +647,36 @@ impl ContextBundle {
     }
 
     pub fn truncate_to_token_limit(&mut self, max_tokens: usize) {
-        // Sort by relevance and keep only what fits
+        // Sort by relevance (primary) then contribution weight (secondary tie-breaker)
         self.memories.sort_by(|a, b| {
             let score_a = self.relevance_scores.get(&a.id).unwrap_or(&0.0);
             let score_b = self.relevance_scores.get(&b.id).unwrap_or(&0.0);
             score_b
                 .partial_cmp(score_a)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let wa = self.contribution_weights.get(&a.id).unwrap_or(&0.5);
+                    let wb = self.contribution_weights.get(&b.id).unwrap_or(&0.5);
+                    wb.partial_cmp(wa).unwrap_or(std::cmp::Ordering::Equal)
+                })
         });
 
         let mut current_tokens = 0;
+        let mut kept_ids: Vec<MemoryId> = Vec::new();
         self.memories.retain(|m| {
             let tokens = m.summary.len() / 4;
             if current_tokens + tokens <= max_tokens {
                 current_tokens += tokens;
+                kept_ids.push(m.id);
                 true
             } else {
                 false
             }
         });
 
+        // Clean up weights for pruned memories
+        self.contribution_weights
+            .retain(|id, _| kept_ids.contains(id));
         self.total_tokens_estimate = current_tokens;
     }
 }
@@ -650,5 +684,123 @@ impl ContextBundle {
 impl Default for ContextBundle {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ============================================================================
+// Memory Caching: Segment Checkpoint Types (arXiv:2602.24281)
+// ============================================================================
+
+/// Embedding method for computing checkpoint summary vectors.
+///
+/// ImportanceWeightedPool (default) uses importance levels as weights so
+/// high-importance memories dominate the checkpoint fingerprint, preventing
+/// bland checkpoints that all look similar after mean-pooling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CheckpointEmbeddingMethod {
+    /// Simple average of all memory embeddings in the window.
+    MeanPool,
+    /// Weighted average using importance levels as weights (default).
+    /// High-importance memories dominate the fingerprint.
+    ImportanceWeightedPool,
+    /// Maximum per-dimension across all embeddings. Most discriminative
+    /// but higher variance.
+    MaxPool,
+}
+
+impl Default for CheckpointEmbeddingMethod {
+    fn default() -> Self {
+        Self::ImportanceWeightedPool
+    }
+}
+
+/// A compressed checkpoint of a temporal segment of memories.
+///
+/// Implements the Memory Caching concept from arXiv:2602.24281: segment the
+/// memory stream into windows and cache a compressed representation of each
+/// segment. At query time, first search checkpoints (coarse, O(N)) then
+/// expand high-scoring checkpoints for fine-grained retrieval.
+///
+/// This provides the MC benefit: effective memory capacity grows with
+/// experience without O(L²) cost — the interpolation between fixed O(L) RNN
+/// memory and O(L²) Transformer attention.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryCheckpoint {
+    pub id: Uuid,
+    /// Start of the time window this checkpoint covers.
+    pub time_window_start: DateTime<Utc>,
+    /// End of the time window this checkpoint covers.
+    pub time_window_end: DateTime<Utc>,
+    /// Embedding vector computed from the window's memories.
+    /// Method determined by `embedding_method`.
+    pub summary_embedding: Vec<f32>,
+    /// Human-readable summary text (from EpisodeSummarizer).
+    pub summary_text: String,
+    /// Number of memories compressed into this checkpoint.
+    pub memory_count: usize,
+    /// IDs of all memories within this checkpoint's window.
+    /// Used for fine-grained expansion after coarse checkpoint selection.
+    pub memory_ids: Vec<MemoryId>,
+    /// Key entity IDs extracted from the window.
+    pub key_entities: Vec<EntityId>,
+    /// Palace location of the dominant room in this window.
+    pub palace_location: Option<PalaceLocation>,
+    /// Session ID if the window spans a single session.
+    pub session_id: Option<SessionId>,
+    /// Highest importance level among memories in this window.
+    /// Used for importance-weighted pooling and eviction priority.
+    pub importance_ceiling: Importance,
+    /// Method used to compute `summary_embedding`.
+    pub embedding_method: CheckpointEmbeddingMethod,
+    /// When this checkpoint was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl MemoryCheckpoint {
+    /// Create a new checkpoint with the given fields.
+    pub fn new(
+        time_window_start: DateTime<Utc>,
+        time_window_end: DateTime<Utc>,
+        summary_embedding: Vec<f32>,
+        summary_text: String,
+        memory_count: usize,
+        memory_ids: Vec<MemoryId>,
+        embedding_method: CheckpointEmbeddingMethod,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            time_window_start,
+            time_window_end,
+            summary_embedding,
+            summary_text,
+            memory_count,
+            memory_ids,
+            key_entities: Vec::new(),
+            palace_location: None,
+            session_id: None,
+            importance_ceiling: Importance::Medium,
+            embedding_method,
+            created_at: Utc::now(),
+        }
+    }
+
+    pub fn with_key_entities(mut self, entities: Vec<EntityId>) -> Self {
+        self.key_entities = entities;
+        self
+    }
+
+    pub fn with_palace_location(mut self, location: PalaceLocation) -> Self {
+        self.palace_location = Some(location);
+        self
+    }
+
+    pub fn with_session(mut self, session_id: SessionId) -> Self {
+        self.session_id = Some(session_id);
+        self
+    }
+
+    pub fn with_importance_ceiling(mut self, importance: Importance) -> Self {
+        self.importance_ceiling = importance;
+        self
     }
 }

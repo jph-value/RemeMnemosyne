@@ -300,6 +300,41 @@ impl MicroEmbedder {
             self.ngram_index.insert(ngram.clone(), idx);
         }
     }
+
+    /// Simple named entity recognition using capitalized-word heuristic.
+    ///
+    /// Extracts entities following the same pattern as EpisodeSummarizer:
+    /// any word > 2 chars starting with uppercase is classified as a
+    /// Concept entity with relevance 0.5.
+    pub fn extract_entities_ner(&self, text: &str) -> Vec<rememnemosyne_core::EntityRef> {
+        let mut entities = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for word in text.split_whitespace() {
+            let clean: String = word
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if clean.len() > 2
+                && clean
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+            {
+                if seen.insert(clean.clone()) {
+                    entities.push(rememnemosyne_core::EntityRef {
+                        id: uuid::Uuid::new_v4(),
+                        name: clean,
+                        entity_type: rememnemosyne_core::EntityType::Concept,
+                        relevance: 0.5,
+                    });
+                }
+            }
+        }
+
+        entities
+    }
 }
 
 /// Micro-embedding cache for performance

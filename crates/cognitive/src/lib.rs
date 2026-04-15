@@ -1,14 +1,18 @@
 pub mod candle_embed;
+pub mod engine;
 pub mod intent;
 pub mod micro_embed;
 pub mod predictor;
 pub mod prefetcher;
+pub mod ssc_router;
 
 pub use candle_embed::*;
+pub use engine::*;
 pub use intent::*;
 pub use micro_embed::*;
 pub use predictor::*;
 pub use prefetcher::*;
+pub use ssc_router::*;
 
 #[cfg(test)]
 mod tests {

@@ -32,9 +32,12 @@ pub struct ContextPredictor {
     embedding_history: VecDeque<Vec<f32>>,
     /// History of retrieved memory IDs
     retrieval_history: VecDeque<Vec<MemoryId>>,
-    /// Transition probabilities between memory clusters (reserved for future sequence modeling)
-    #[allow(dead_code)]
+    /// Transition probabilities between memory clusters (populated by
+    /// record_transition). Used for MC-style prediction blending where
+    /// past intent transitions inform future prefetching decisions.
     transition_matrix: HashMap<(usize, usize), f32>,
+    /// Last intent state index, used for transition recording.
+    last_intent_state: Option<usize>,
 }
 
 impl ContextPredictor {
@@ -46,12 +49,21 @@ impl ContextPredictor {
             embedding_history: VecDeque::new(),
             retrieval_history: VecDeque::new(),
             transition_matrix: HashMap::new(),
+            last_intent_state: None,
         }
     }
 
-    /// Add a new context embedding to history
+    /// Add a new context embedding to history and record intent transition.
     pub fn add_context(&mut self, text: &str, retrieved_ids: Vec<MemoryId>) {
         let embedding = self.embedder.embed(text);
+
+        // Record intent transition for MC prediction blending
+        let intents = self.intent_detector.detect(text);
+        let current_state = self.intent_to_state(intents.first().map(|(i, _)| i.as_str()));
+        if let (Some(prev), Some(curr)) = (self.last_intent_state, current_state) {
+            self.record_transition(prev, curr);
+        }
+        self.last_intent_state = current_state;
 
         self.embedding_history.push_back(embedding);
         if self.embedding_history.len() > self.config.history_size {
@@ -62,6 +74,61 @@ impl ContextPredictor {
         if self.retrieval_history.len() > self.config.history_size {
             self.retrieval_history.pop_front();
         }
+    }
+
+    /// Record a transition from one intent state to another.
+    ///
+    /// Populates the transition matrix for MC-style prediction blending.
+    /// Only used for statistical tracking — the blending weight is capped
+    /// at 30% to prevent the transition model from overriding embedding
+    /// similarity (which remains the primary signal at 70%).
+    pub fn record_transition(&mut self, from_state: usize, to_state: usize) {
+        *self
+            .transition_matrix
+            .entry((from_state, to_state))
+            .or_insert(0.0) += 1.0;
+    }
+
+    /// Get normalized transition probability from state to state.
+    ///
+    /// Computes on-the-fly from raw counts. Returns 0.0 if no transitions
+    /// recorded for the from_state.
+    fn get_transition_prob(&self, from_state: usize, to_state: usize) -> f32 {
+        let row_sum: f32 = self
+            .transition_matrix
+            .iter()
+            .filter(|((from, _), _)| *from == from_state)
+            .map(|(_, count)| *count)
+            .sum();
+
+        if row_sum < 1e-10 {
+            return 1.0 / 7.0; // Uniform prior over 7 intent states
+        }
+
+        self.transition_matrix
+            .get(&(from_state, to_state))
+            .copied()
+            .unwrap_or(0.0)
+            / row_sum
+    }
+
+    /// Map an intent string to a numeric state for the transition matrix.
+    fn intent_to_state(&self, intent: Option<&str>) -> Option<usize> {
+        match intent? {
+            "search" => Some(0),
+            "recall" => Some(1),
+            "remember" => Some(2),
+            "analyze" => Some(3),
+            "decision" => Some(4),
+            "question" => Some(5),
+            "command" => Some(6),
+            _ => None,
+        }
+    }
+
+    /// Check if there are enough transition observations for meaningful blending.
+    fn transition_capacity(&self) -> usize {
+        self.transition_matrix.len()
     }
 
     /// Predict relevant memories based on current context
@@ -110,6 +177,18 @@ impl ContextPredictor {
         let max_score = predictions.values().fold(0.0f32, |a, &b| a.max(b));
         if max_score > 0.0 {
             predictions.iter_mut().for_each(|(_, v)| *v /= max_score);
+        }
+
+        // MC transition blending: blend embedding similarity (70%) with
+        // transition probability (30%) only after sufficient observations.
+        // This prevents cold-start noise from overriding the primary signal.
+        if self.transition_capacity() > 10 {
+            if let Some(from_state) = self.last_intent_state {
+                for (_, score) in predictions.iter_mut() {
+                    let transition_prob = self.get_transition_prob(from_state, from_state);
+                    *score = *score * 0.7 + transition_prob * 0.3;
+                }
+            }
         }
 
         // Convert to vec and sort
