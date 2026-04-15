@@ -10,14 +10,16 @@ use crate::ssc_router::SSCRouter;
 /// Concrete implementation of the CognitiveEngine trait.
 ///
 /// Integrates micro-embeddings, intent detection, context prediction,
-/// prefetching, and SSC routing into a single coherent engine that
-/// implements arXiv:2602.24281 Memory Caching concepts at the
-/// application level.
+/// and prefetching. Note: SSC routing is handled directly by
+/// `MemoryRouter` (in the engine crate), not by this struct.
+/// The `ssc_router` field is reserved for future local use.
 pub struct CognitiveEngineImpl {
     embedder: MicroEmbedder,
     intent_detector: IntentDetector,
     predictor: std::sync::Mutex<ContextPredictor>,
     prefetcher: std::sync::Mutex<MemoryPrefetcher>,
+    /// Reserved for future local SSC routing (currently handled by MemoryRouter)
+    #[allow(dead_code)]
     ssc_router: Option<SSCRouter>,
 }
 

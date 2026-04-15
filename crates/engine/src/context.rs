@@ -200,14 +200,16 @@ impl ContextBuilderEngine {
         let mut normalized_scores = top_k_scores.clone();
         rememnemosyne_core::math::softmax(&mut normalized_scores);
 
-        // Build a map from index to weight
+        // Build a map from result index to weight
         let mut weight_map: HashMap<usize, f32> = HashMap::new();
-        for (i, (_, raw_score)) in gate_pairs.iter().take(softmax_k).enumerate() {
+        for (i, (_, _)) in gate_pairs.iter().take(softmax_k).enumerate() {
             // Blend softmax-normalized weight with a base that preserves ordering
             // This ensures no weight is zero (recall preservation) while still
             // being proportional to gate similarity
             let normalized = normalized_scores.get(i).copied().unwrap_or(0.05);
-            weight_map.insert(*raw_score as usize, normalized);
+            // Use the original result index as key (not the raw score, which loses precision)
+            let original_idx = gate_pairs[i].0;
+            weight_map.insert(original_idx, normalized);
         }
 
         // Sort gate_pairs back by original index for stable memory ordering
@@ -228,11 +230,11 @@ impl ContextBuilderEngine {
                 .map(|(_, s)| *s)
                 .unwrap_or(0.5);
 
-            // Convert gate score to contribution weight
-            // Use the softmax-normalized value for top-k, or a minimal weight for others
+            // Convert gate score to contribution weight using the softmax-normalized values
+            // from Phase 2. Use softmax weight for top-k memories, minimal weight for others.
             let contribution_weight = if gate_score > 0.0 {
-                // Blend: 60% softmax weight + 40% raw gate to prevent extreme values
-                let softmax_weight = 1.0 / softmax_k.max(1) as f32;
+                // Blend: 60% softmax weight (from weight_map) + 40% raw gate
+                let softmax_weight = weight_map.get(&idx).copied().unwrap_or(0.05);
                 0.6 * softmax_weight + 0.4 * gate_score
             } else {
                 0.05 // Minimal weight for zero-gate memories (recall preservation)
@@ -330,7 +332,17 @@ impl ContextBuilderEngine {
         if !bundle.memories.is_empty() {
             parts.push("## Available Memories".to_string());
             for memory in bundle.memories.iter().take(self.config.max_memories) {
-                parts.push(format!("- {}", memory.summary));
+                let weight = bundle
+                    .contribution_weights
+                    .get(&memory.id)
+                    .copied()
+                    .unwrap_or(1.0);
+                let summary = if weight < 0.3 {
+                    memory.summary.chars().take(60).collect::<String>()
+                } else {
+                    memory.summary.clone()
+                };
+                parts.push(format!("- {}", summary));
             }
             parts.push(String::new());
         }
@@ -442,10 +454,16 @@ impl ContextBuilderEngine {
         if !bundle.memories.is_empty() {
             parts.push("## Relevant Examples\n".to_string());
             for memory in bundle.memories.iter().take(3) {
+                let weight = bundle
+                    .contribution_weights
+                    .get(&memory.id)
+                    .copied()
+                    .unwrap_or(1.0);
+                let content_len = if weight > 0.7 { 200 } else { 80 };
                 parts.push(format!("Q: {}", memory.summary));
                 parts.push(format!(
                     "A: {}",
-                    memory.content.chars().take(200).collect::<String>()
+                    memory.content.chars().take(content_len).collect::<String>()
                 ));
                 parts.push(String::new());
             }

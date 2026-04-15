@@ -30,6 +30,7 @@ pub mod providers;
 pub use api::*;
 pub use builder::*;
 pub use context::*;
+pub use providers::*;
 pub use pruner::*;
 pub use router::*;
 pub use sanitizer::*;

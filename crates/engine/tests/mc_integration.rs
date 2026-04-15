@@ -33,7 +33,7 @@ async fn test_mc_checkpoint_creation_and_search() {
     .with_importance(Importance::Medium);
 
     let memories = vec![m1, m2];
-    let checkpoint = store.create_checkpoint(&memories, None);
+    let checkpoint = store.create_checkpoint(&memories, None).unwrap().0;
 
     assert_eq!(checkpoint.memory_count, 2);
     assert_eq!(store.len(), 1);
@@ -64,7 +64,7 @@ async fn test_mc_checkpoint_expansion() {
         memories.push(m);
     }
 
-    let checkpoint = store.create_checkpoint(&memories, None);
+    let checkpoint = store.create_checkpoint(&memories, None).unwrap().0;
     let expanded = store.expand_checkpoint(checkpoint.id);
 
     assert_eq!(expanded.len(), 10, "Should expand to all 10 memories");
@@ -87,7 +87,7 @@ async fn test_mc_checkpoint_eviction() {
             vec![0.1 * i as f32, 0.2],
             MemoryTrigger::UserInput,
         );
-        store.create_checkpoint(&[m], None);
+        store.create_checkpoint(&[m], None).unwrap().0;
     }
 
     assert_eq!(store.len(), 3, "Should evict oldest, keeping only 3");
@@ -252,7 +252,7 @@ async fn test_mc_full_pipeline() {
         )
         .with_importance(Importance::Medium);
 
-        let cp = store.create_checkpoint(&[m1, m2], None);
+        let cp = store.create_checkpoint(&[m1, m2], None).unwrap().0;
         router.register_checkpoint(&cp);
         cp
     };
@@ -267,7 +267,7 @@ async fn test_mc_full_pipeline() {
         )
         .with_importance(Importance::Medium);
 
-        let cp = store.create_checkpoint(&[m1], None);
+        let cp = store.create_checkpoint(&[m1], None).unwrap().0;
         router.register_checkpoint(&cp);
         cp
     };

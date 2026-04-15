@@ -383,8 +383,8 @@ impl RememnosyneEngine {
 
         let response = self.router.query(&mem_query).await?;
 
-        // Generate embedding for MC-gated context assembly
-        let query_embedding = self.generate_embedding(safe_query).await;
+        // Reuse the query embedding from the router (avoids double embedding)
+        let query_embedding = response.query_embedding.clone();
 
         let bundle = if !query_embedding.is_empty() {
             // MC Phase 2: Gated Context Assembly — use contribution weights

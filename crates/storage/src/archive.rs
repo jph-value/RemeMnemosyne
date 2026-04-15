@@ -131,7 +131,7 @@ impl MemoryArchive {
         let catalog_path = config.archive_dir.join("catalog.json");
         let data_path = config.archive_dir.join("data.bin");
 
-        let mut catalog = if catalog_path.exists() {
+        let catalog = if catalog_path.exists() {
             let data = fs::read_to_string(&catalog_path)?;
             let mut cat: ArchiveCatalog =
                 serde_json::from_str(&data).unwrap_or_else(|_| ArchiveCatalog::new());

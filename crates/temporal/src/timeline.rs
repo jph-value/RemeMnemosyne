@@ -103,7 +103,11 @@ impl Timeline {
 
         // Keep first, last, and most important events
         let mut indexed: Vec<(usize, &TemporalEvent)> = self.events.iter().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.importance.partial_cmp(&a.1.importance).unwrap());
+        indexed.sort_by(|a, b| {
+            b.1.importance
+                .partial_cmp(&a.1.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut keep = std::collections::HashSet::new();
         keep.insert(0); // First

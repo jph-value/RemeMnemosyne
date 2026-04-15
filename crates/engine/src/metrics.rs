@@ -61,6 +61,13 @@ pub enum MemoryTypeLabel {
     Episodic,
     Graph,
     Temporal,
+    EventClassification,
+    InfrastructureGap,
+    GapDocumentation,
+    NarrativeThread,
+    EvidenceChain,
+    CounterNarrative,
+    Checkpoint,
 }
 
 #[derive(
@@ -275,7 +282,14 @@ impl RememnosyneMetrics {
             MemoryTypeLabel::Graph => {
                 self.graph_entities.inc();
             }
-            MemoryTypeLabel::Temporal => {}
+            MemoryTypeLabel::Temporal
+            | MemoryTypeLabel::EventClassification
+            | MemoryTypeLabel::InfrastructureGap
+            | MemoryTypeLabel::GapDocumentation
+            | MemoryTypeLabel::NarrativeThread
+            | MemoryTypeLabel::EvidenceChain
+            | MemoryTypeLabel::CounterNarrative
+            | MemoryTypeLabel::Checkpoint => {}
         }
     }
 

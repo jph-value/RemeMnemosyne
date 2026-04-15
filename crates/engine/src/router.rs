@@ -209,6 +209,9 @@ impl MemoryRouter {
             response.sort_by_relevance();
         }
 
+        // Store query embedding for callers to reuse (avoids re-embedding)
+        response.query_embedding = query_embedding.unwrap_or_default();
+
         // Predict next likely memories using prefetch data
         if self.config.enable_prefetch {
             let query_text = query.text.as_deref().unwrap_or("");
@@ -244,11 +247,37 @@ impl MemoryRouter {
             return boosted_ids;
         }
 
+        // Step 1b: Build transition probabilities from ContextPredictor (Bug 5 fix).
+        // Only use transitions when the predictor has >10 observations,
+        // matching the cold-start guard in ContextPredictor::predict().
+        let transition_probs: Option<std::collections::HashMap<uuid::Uuid, f32>> = {
+            let predictor = self.predictor.read();
+            if predictor.transition_capacity() > 10 {
+                if let Some(from_state) = predictor.last_intent_state {
+                    let mut probs = std::collections::HashMap::new();
+                    for &cp_id in &all_checkpoint_ids {
+                        let to_state = 0;
+                        probs.insert(cp_id, predictor.get_transition_prob(from_state, to_state));
+                    }
+                    Some(probs)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         // Step 2: SSC Route — select Top-k most relevant checkpoints
+        // Uses 70/30 blend of cosine similarity + transition probabilities
+        // when available (Bug 5 fix), pure cosine otherwise (cold start).
         let expansion_threshold = checkpoint_store.config().expansion_threshold;
         let routed = {
             let ssc_router = self.ssc_router.read();
-            ssc_router.route_with_scores(query_embedding, &all_checkpoint_ids)
+            match transition_probs {
+                Some(ref tp) => ssc_router.route_with_transitions(query_embedding, &all_checkpoint_ids, Some(tp)),
+                None => ssc_router.route_with_scores(query_embedding, &all_checkpoint_ids),
+            }
         };
 
         // Step 3: Expand high-relevance checkpoints (above expansion threshold)
@@ -310,8 +339,14 @@ impl MemoryRouter {
                 let recent = self.collect_recent_memories_for_checkpoint(threshold).await;
                 if !recent.is_empty() {
                     let checkpoint_store = self.checkpoint_store.write();
-                    let checkpoint = checkpoint_store.create_checkpoint(&recent, session_id);
-                    self.ssc_router.write().register_checkpoint(&checkpoint);
+                    if let Ok((checkpoint, evicted_ids)) = checkpoint_store.create_checkpoint(&recent, session_id)
+                    {
+                        self.ssc_router.write().register_checkpoint(&checkpoint);
+                        // Deregister evicted checkpoints from the SSC router
+                        for evicted_id in evicted_ids {
+                            self.ssc_router.write().deregister(&evicted_id);
+                        }
+                    }
                 }
             }
         }
@@ -321,11 +356,13 @@ impl MemoryRouter {
 
     /// Collect recent memories for checkpoint creation.
     ///
-    /// Queries the semantic store for recent memories to include in
-    /// a checkpoint. Falls back to an empty vec if the query fails
-    /// (cold start protection).
+    /// Queries the semantic store with no text/embedding filter, which
+    /// falls back to timestamp-ordered retrieval (newest first).
+    /// This replaces the previous "__recent__" magic string approach
+    /// (Bug 6 fix) which produced arbitrary HNSW results instead of
+    /// truly recent memories.
     async fn collect_recent_memories_for_checkpoint(&self, count: usize) -> Vec<MemoryArtifact> {
-        let recent_query = MemoryQuery::new().with_limit(count).with_text("__recent__");
+        let recent_query = MemoryQuery::new().with_limit(count);
 
         match self.semantic.query(&recent_query).await {
             Ok(memories) => memories.into_iter().take(count).collect(),
@@ -492,6 +529,8 @@ pub struct MemoryResponse {
     pub temporal_events: Vec<TemporalEvent>,
     pub predicted_next: Vec<(uuid::Uuid, f32)>,
     pub total_search_time_ms: u64,
+    /// The query embedding used for this response (MC Phase 2: avoids re-embedding)
+    pub query_embedding: Vec<f32>,
 }
 
 impl MemoryResponse {
@@ -502,6 +541,7 @@ impl MemoryResponse {
             temporal_events: Vec::new(),
             predicted_next: Vec::new(),
             total_search_time_ms: 0,
+            query_embedding: Vec::new(),
         }
     }
 

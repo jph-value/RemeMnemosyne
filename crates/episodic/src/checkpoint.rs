@@ -1,12 +1,12 @@
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use parking_lot::RwLock;
 use rememnemosyne_core::{
     cosine_similarity, max_pool, mean_pool, weighted_mean_pool, CheckpointEmbeddingMethod,
-    Importance, MemoryArtifact, MemoryCheckpoint, MemoryId, PalaceLocation, SessionId,
+    Importance, MemoryArtifact, MemoryCheckpoint, MemoryError, MemoryId, PalaceLocation, SessionId,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::RwLock;
 use uuid::Uuid;
 
 /// Configuration for the checkpoint store.
@@ -30,10 +30,6 @@ pub struct CheckpointConfig {
     /// This is the MC analogue of γ in Eq 9 — the gate threshold for whether
     /// to drill into a checkpoint's window or just use its summary.
     pub expansion_threshold: f32,
-    /// Number of checkpoints to retrieve in coarse search (default: 5).
-    /// This is MC's Top-k (N in the paper) — the number of cached segments
-    /// the SSC router selects for fine-grained expansion.
-    pub top_k_routing: usize,
 }
 
 impl Default for CheckpointConfig {
@@ -44,7 +40,6 @@ impl Default for CheckpointConfig {
             max_checkpoints: 200,
             embedding_method: CheckpointEmbeddingMethod::ImportanceWeightedPool,
             expansion_threshold: 0.3,
-            top_k_routing: 5,
         }
     }
 }
@@ -101,7 +96,7 @@ impl CheckpointStore {
             + additional_count
             >= self.config.memory_threshold;
 
-        let last_time = *self.last_checkpoint_time.read().unwrap();
+        let last_time = *self.last_checkpoint_time.read();
         let time_triggered =
             (now - last_time).num_seconds() as u64 >= self.config.time_threshold_secs;
 
@@ -124,14 +119,19 @@ impl CheckpointStore {
     /// Computes the summary embedding using the configured method
     /// (ImportanceWeightedPool by default), extracts key info from
     /// the memories, and stores the checkpoint.
+    ///
+    /// Returns the created checkpoint and a list of evicted checkpoint IDs
+    /// (from FIFO overflow). The caller should deregister these IDs from
+    /// the SSC router to prevent zombie entries.
     pub fn create_checkpoint(
         &self,
         memories: &[MemoryArtifact],
         session_id: Option<SessionId>,
-    ) -> MemoryCheckpoint {
+    ) -> Result<(MemoryCheckpoint, Vec<Uuid>), MemoryError> {
         if memories.is_empty() {
-            // No memories — don't create empty checkpoints
-            panic!("Cannot create checkpoint from empty memory window");
+            return Err(MemoryError::Storage(
+                "Cannot create checkpoint from empty memory window".to_string(),
+            ));
         }
 
         let now = Utc::now();
@@ -140,6 +140,10 @@ impl CheckpointStore {
 
         // Compute summary embedding using the configured method
         let summary_embedding = self.compute_summary_embedding(memories);
+
+        // Also compute mean-pooled and importance-weighted embeddings separately
+        // for the SSC router (Bug 3 fix: store both for discriminative routing)
+        let (mean_emb, _weighted_emb) = self.compute_both_embeddings(memories);
 
         // Extract summary text from memory content
         let summary_text = self.compute_summary_text(memories);
@@ -168,6 +172,7 @@ impl CheckpointStore {
         );
 
         checkpoint = checkpoint.with_importance_ceiling(importance_ceiling);
+        checkpoint.mean_embedding = mean_emb;
 
         if let Some(location) = palace_location {
             checkpoint = checkpoint.with_palace_location(location);
@@ -180,16 +185,16 @@ impl CheckpointStore {
         // Store the checkpoint
         let id = checkpoint.id;
         self.checkpoints.insert(id, checkpoint.clone());
-        self.checkpoint_order.write().unwrap().push(id);
+        self.checkpoint_order.write().push(id);
 
         // Update last checkpoint time
-        *self.last_checkpoint_time.write().unwrap() = now;
+        *self.last_checkpoint_time.write() = now;
         self.reset_memory_counter();
 
-        // Evict oldest if exceeding max
-        self.evict_if_needed();
+        // Evict oldest if exceeding max, collecting evicted IDs for SSC cleanup
+        let evicted_ids = self.evict_and_return_ids();
 
-        checkpoint
+        Ok((checkpoint, evicted_ids))
     }
 
     /// Search checkpoints by query embedding similarity.
@@ -242,7 +247,7 @@ impl CheckpointStore {
 
     /// List all checkpoint IDs in creation order.
     pub fn list_checkpoint_ids(&self) -> Vec<Uuid> {
-        self.checkpoint_order.read().unwrap().clone()
+        self.checkpoint_order.read().clone()
     }
 
     /// Get the number of stored checkpoints.
@@ -282,6 +287,31 @@ impl CheckpointStore {
             }
             CheckpointEmbeddingMethod::MaxPool => max_pool(&embeddings),
         }
+    }
+
+    /// Compute both mean-pooled and importance-weighted embeddings for SSC routing.
+    /// Always computes both regardless of configured method, so the SSC router
+    /// can discriminate between checkpoints using the more discriminative embedding.
+    fn compute_both_embeddings(&self, memories: &[MemoryArtifact]) -> (Vec<f32>, Vec<f32>) {
+        let embeddings: Vec<Vec<f32>> = memories
+            .iter()
+            .filter(|m| !m.embedding.is_empty())
+            .map(|m| m.embedding.clone())
+            .collect();
+
+        if embeddings.is_empty() {
+            return (Vec::new(), Vec::new());
+        }
+
+        let mean = mean_pool(&embeddings);
+        let weights: Vec<f32> = memories
+            .iter()
+            .filter(|m| !m.embedding.is_empty())
+            .map(|m| m.importance as u8 as f32 * 0.25)
+            .collect();
+        let weighted = weighted_mean_pool(&embeddings, &weights);
+
+        (mean, weighted)
     }
 
     fn compute_summary_text(&self, memories: &[MemoryArtifact]) -> String {
@@ -338,21 +368,24 @@ impl CheckpointStore {
         Some(PalaceLocation::new(wing, hall, room))
     }
 
-    fn evict_if_needed(&self) {
+    /// Evict oldest checkpoints and return their IDs for SSC deregistration.
+    fn evict_and_return_ids(&self) -> Vec<Uuid> {
         if self.len() <= self.config.max_checkpoints {
-            return;
+            return Vec::new();
         }
 
-        // Evict oldest checkpoints
-        let mut order = self.checkpoint_order.write().unwrap();
+        let mut evicted = Vec::new();
+        let mut order = self.checkpoint_order.write();
         while order.len() > self.config.max_checkpoints {
             if let Some(oldest_id) = order.first() {
                 self.checkpoints.remove(oldest_id);
+                evicted.push(*oldest_id);
                 order.remove(0);
             } else {
                 break;
             }
         }
+        evicted
     }
 }
 
@@ -385,7 +418,6 @@ mod tests {
             CheckpointEmbeddingMethod::ImportanceWeightedPool
         );
         assert!((config.expansion_threshold - 0.3).abs() < 1e-6);
-        assert_eq!(config.top_k_routing, 5);
     }
 
     #[test]
@@ -409,12 +441,12 @@ mod tests {
         let now = Utc::now();
 
         // Recent last checkpoint — no time trigger
-        *store.last_checkpoint_time.write().unwrap() = now;
+        *store.last_checkpoint_time.write() = now;
         assert!(!store.should_checkpoint(0, now));
 
         // Old last checkpoint — time trigger
         let old_time = now - chrono::Duration::seconds(2000);
-        *store.last_checkpoint_time.write().unwrap() = old_time;
+        *store.last_checkpoint_time.write() = old_time;
         assert!(store.should_checkpoint(0, now));
     }
 
@@ -433,7 +465,7 @@ mod tests {
 
         let memories = vec![m1, m2];
 
-        let checkpoint = store.create_checkpoint(&memories, None);
+        let checkpoint = store.create_checkpoint(&memories, None).unwrap().0;
 
         assert_eq!(checkpoint.memory_count, 2);
         assert!(checkpoint.memory_ids.contains(&id1));
@@ -456,8 +488,12 @@ mod tests {
             make_memory(Uuid::new_v4(), Importance::Medium, vec![0.05, 0.15, 0.85]),
         ];
 
-        store.create_checkpoint(&checkpoint_memories_1, None);
-        store.create_checkpoint(&checkpoint_memories_2, None);
+        store
+            .create_checkpoint(&checkpoint_memories_1, None)
+            .unwrap();
+        store
+            .create_checkpoint(&checkpoint_memories_2, None)
+            .unwrap();
 
         // Query similar to checkpoint 1
         let query = vec![0.95, 0.05, 0.0];
@@ -478,7 +514,7 @@ mod tests {
             make_memory(id2, Importance::Medium, vec![0.3, 0.4]),
         ];
 
-        let checkpoint = store.create_checkpoint(&memories, None);
+        let checkpoint = store.create_checkpoint(&memories, None).unwrap().0;
         let expanded = store.expand_checkpoint(checkpoint.id);
 
         assert_eq!(expanded.len(), 2);
@@ -500,7 +536,7 @@ mod tests {
                 Importance::Medium,
                 vec![0.1 * i as f32, 0.2],
             )];
-            store.create_checkpoint(&memories, None);
+            let _ = store.create_checkpoint(&memories, None).unwrap();
         }
 
         assert_eq!(store.len(), 3);
@@ -530,9 +566,9 @@ mod tests {
         let store_weighted = CheckpointStore::new(config_weighted);
         let store_max = CheckpointStore::new(config_max);
 
-        let cp_mean = store_mean.create_checkpoint(&memories, None);
-        let cp_weighted = store_weighted.create_checkpoint(&memories, None);
-        let cp_max = store_max.create_checkpoint(&memories, None);
+        let cp_mean = store_mean.create_checkpoint(&memories, None).unwrap().0;
+        let cp_weighted = store_weighted.create_checkpoint(&memories, None).unwrap().0;
+        let cp_max = store_max.create_checkpoint(&memories, None).unwrap().0;
 
         // All should produce different embeddings
         assert_ne!(cp_mean.summary_embedding, cp_weighted.summary_embedding);

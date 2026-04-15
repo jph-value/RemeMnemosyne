@@ -643,6 +643,7 @@ impl ContextBundle {
         self.relationships.extend(other.relationships);
         self.temporal_events.extend(other.temporal_events);
         self.relevance_scores.extend(other.relevance_scores);
+        self.contribution_weights.extend(other.contribution_weights);
         self.total_tokens_estimate += other.total_tokens_estimate;
     }
 
@@ -732,8 +733,13 @@ pub struct MemoryCheckpoint {
     /// End of the time window this checkpoint covers.
     pub time_window_end: DateTime<Utc>,
     /// Embedding vector computed from the window's memories.
-    /// Method determined by `embedding_method`.
+    /// Method determined by `embedding_method`. This is the PRIMARY
+    /// embedding used for checkpoint-level search.
     pub summary_embedding: Vec<f32>,
+    /// Mean-pooled embedding of the window (always computed, regardless of
+    /// configured method). Used by the SSC router as a fallback when
+    /// `importance_weighted_embedding` is less discriminative.
+    pub mean_embedding: Vec<f32>,
     /// Human-readable summary text (from EpisodeSummarizer).
     pub summary_text: String,
     /// Number of memories compressed into this checkpoint.
@@ -767,11 +773,13 @@ impl MemoryCheckpoint {
         memory_ids: Vec<MemoryId>,
         embedding_method: CheckpointEmbeddingMethod,
     ) -> Self {
+        let mean_embedding = summary_embedding.clone();
         Self {
             id: Uuid::new_v4(),
             time_window_start,
             time_window_end,
             summary_embedding,
+            mean_embedding,
             summary_text,
             memory_count,
             memory_ids,

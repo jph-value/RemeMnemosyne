@@ -11,22 +11,15 @@ use uuid::Uuid;
 /// segments for efficient aggregation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SSCRouterConfig {
-    /// Number of segments to select in Top-k routing (default: 5).
+    /// Number of top segments to select during routing (default: 5).
     /// This is N in MC's O(NL) complexity — the number of cached
     /// segments the router selects for fine-grained expansion.
     pub top_k: usize,
-    /// Minimum relevance score for a segment to be expanded (default: 0.3).
-    /// Below this threshold, a checkpoint's summary is used without
-    /// expanding into individual memories.
-    pub expansion_threshold: f32,
 }
 
 impl Default for SSCRouterConfig {
     fn default() -> Self {
-        Self {
-            top_k: 5,
-            expansion_threshold: 0.3,
-        }
+        Self { top_k: 5 }
     }
 }
 
@@ -36,6 +29,7 @@ impl Default for SSCRouterConfig {
 /// relevance r_t^(i) = ⟨u_t, MeanPool(S^(i))⟩ (Eq 16).
 /// This struct stores the precomputed MeanPool(S^(i)) so that
 /// scoring is a single dot product per segment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SegmentProfile {
     pub id: Uuid,
     /// Mean-pooled embedding of all memories in this segment.
@@ -88,13 +82,14 @@ impl SSCRouter {
 
     /// Register a checkpoint as a segment profile for SSC routing.
     ///
-    /// The checkpoint's summary_embedding is stored as both the mean and
-    /// importance-weighted embedding (since it's already weighted at creation
-    /// time based on CheckpointEmbeddingMethod).
+    /// Stores both the mean-pooled embedding (for fallback scoring) and
+    /// the importance-weighted embedding (for primary discriminative scoring).
+    /// This ensures the SSC router can discriminate between checkpoints
+    /// even when MeanPool is the configured method.
     pub fn register_checkpoint(&self, checkpoint: &rememnemosyne_core::MemoryCheckpoint) {
         let profile = SegmentProfile {
             id: checkpoint.id,
-            mean_embedding: checkpoint.summary_embedding.clone(),
+            mean_embedding: checkpoint.mean_embedding.clone(),
             importance_weighted_embedding: checkpoint.summary_embedding.clone(),
             memory_count: checkpoint.memory_count,
             palace_location: checkpoint.palace_location.clone(),
@@ -149,6 +144,62 @@ impl SSCRouter {
         scored
     }
 
+    /// Score segments blended with ContextPredictor transition probabilities.
+    ///
+    /// Implements MC Eq 16-17 with transition blending:
+    ///   final_score = 0.7 * cosine_sim + 0.3 * transition_prob
+    ///
+    /// When `transition_probs` is None or the predictor hasn't accumulated
+    /// enough observations (≤10), falls back to pure cosine similarity.
+    /// This prevents cold-start noise from overriding the primary signal.
+    pub fn score_segments_with_transitions(
+        &self,
+        query_embedding: &[f32],
+        candidate_ids: &[Uuid],
+        transition_probs: Option<&std::collections::HashMap<Uuid, f32>>,
+    ) -> Vec<(Uuid, f32)> {
+        if query_embedding.is_empty() {
+            return Vec::new();
+        }
+
+        let use_transitions = transition_probs.map(|tp| !tp.is_empty()).unwrap_or(false);
+
+        let mut scored: Vec<(Uuid, f32)> = candidate_ids
+            .iter()
+            .filter_map(|id| {
+                self.segments.get(id).map(|profile| {
+                    let emb = if profile.importance_weighted_embedding.is_empty() {
+                        &profile.mean_embedding
+                    } else {
+                        &profile.importance_weighted_embedding
+                    };
+
+                    let cosine = if emb.is_empty() {
+                        0.0
+                    } else {
+                        cosine_similarity(query_embedding, emb)
+                    };
+
+                    let score = if use_transitions {
+                        let tp = transition_probs
+                            .unwrap()
+                            .get(id)
+                            .copied()
+                            .unwrap_or(1.0 / (candidate_ids.len().max(1) as f32));
+                        0.7 * cosine + 0.3 * tp
+                    } else {
+                        cosine
+                    };
+
+                    (*id, score)
+                })
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored
+    }
+
     /// Route a query to the Top-k most relevant segments (MC Eq 17).
     ///
     /// Returns the IDs of the k most relevant segments.
@@ -168,6 +219,22 @@ impl SSCRouter {
     ) -> Vec<(Uuid, f32)> {
         let routed = self.score_segments(query_embedding, candidate_ids);
         routed.into_iter().take(self.config.top_k).collect()
+    }
+
+    /// Route with transition-blended scoring (Bug 5 fix).
+    ///
+    /// Uses 70/30 blend of cosine similarity + ContextPredictor transition
+    /// probabilities when available, falling back to pure cosine otherwise.
+    pub fn route_with_transitions(
+        &self,
+        query_embedding: &[f32],
+        candidate_ids: &[Uuid],
+        transition_probs: Option<&std::collections::HashMap<Uuid, f32>>,
+    ) -> Vec<(Uuid, f32)> {
+        self.score_segments_with_transitions(query_embedding, candidate_ids, transition_probs)
+            .into_iter()
+            .take(self.config.top_k)
+            .collect()
     }
 
     /// Get the number of registered segments.

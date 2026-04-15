@@ -36,8 +36,10 @@ pub struct ContextPredictor {
     /// record_transition). Used for MC-style prediction blending where
     /// past intent transitions inform future prefetching decisions.
     transition_matrix: HashMap<(usize, usize), f32>,
-    /// Last intent state index, used for transition recording.
-    last_intent_state: Option<usize>,
+    /// Last observed intent state. Exposed for SSC router transition blending
+    /// (Bug 5 fix): the router needs the current intent state to compute
+    /// transition probabilities for checkpoint scoring.
+    pub last_intent_state: Option<usize>,
 }
 
 impl ContextPredictor {
@@ -92,8 +94,8 @@ impl ContextPredictor {
     /// Get normalized transition probability from state to state.
     ///
     /// Computes on-the-fly from raw counts. Returns 0.0 if no transitions
-    /// recorded for the from_state.
-    fn get_transition_prob(&self, from_state: usize, to_state: usize) -> f32 {
+    /// recorded for the from_state. Public for SSC router blending (Bug 5 fix).
+    pub fn get_transition_prob(&self, from_state: usize, to_state: usize) -> f32 {
         let row_sum: f32 = self
             .transition_matrix
             .iter()
@@ -126,8 +128,10 @@ impl ContextPredictor {
         }
     }
 
-    /// Check if there are enough transition observations for meaningful blending.
-    fn transition_capacity(&self) -> usize {
+    /// Number of distinct transition observations recorded.
+    /// Used by callers (e.g., SSC router blending) to determine whether
+    /// the transition model has enough data to be meaningful (>10).
+    pub fn transition_capacity(&self) -> usize {
         self.transition_matrix.len()
     }
 

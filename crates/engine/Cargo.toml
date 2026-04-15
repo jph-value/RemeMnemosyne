@@ -52,10 +52,10 @@ clone-tracking = ["dep:rememnemosyne-clone-tracker"]
 # Memory Caching features (arXiv:2602.24281)
 # mc-checkpoints: Segment checkpointing for coarse O(N) search before fine O(M) HNSW
 mc-checkpoints = []
-# mc-gated-context: GRM contribution weights for per-memory rendering depth
-mc-gated-context = []
-# mc-ssc: Sparse Selective Caching router for Top-k checkpoint selection
-mc-ssc = []
+# mc-gated-context: GRM contribution weights for per-memory rendering depth (requires checkpoints)
+mc-gated-context = ["mc-checkpoints"]
+# mc-ssc: Sparse Selective Caching router for Top-k checkpoint selection (requires checkpoints)
+mc-ssc = ["mc-checkpoints"]
 
 [build-dependencies]
 rememnemosyne-clone-tracker = { path = "../clone-tracker", optional = true }

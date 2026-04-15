@@ -81,10 +81,16 @@ impl PalaceRouter {
         
         // Determine hall based on memory type
         let hall_type = match memory.memory_type {
-            MemoryType::Semantic => HallType::Facts,
-            MemoryType::Episodic => HallType::Events,
-            MemoryType::Graph => HallType::Facts,
-            MemoryType::Temporal => HallType::Events,
+            MemoryType::Semantic
+            | MemoryType::Graph
+            | MemoryType::EventClassification
+            | MemoryType::InfrastructureGap
+            | MemoryType::GapDocumentation
+            | MemoryType::NarrativeThread
+            | MemoryType::EvidenceChain
+            | MemoryType::CounterNarrative
+            | MemoryType::Checkpoint => HallType::Facts,
+            MemoryType::Episodic | MemoryType::Temporal => HallType::Events,
         };
         
         // Determine wing from session or tags
