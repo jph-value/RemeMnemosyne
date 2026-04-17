@@ -35,6 +35,7 @@ Every major architectural decision traces to a specific project, with clear attr
 | **[HNSWLib](https://github.com/nmslib/hnswlib)** (C++) | HNSW approximate nearest neighbor algorithm concept | Re-implemented HNSW in pure Rust; added cosine similarity; added flat index fallback with auto-switching threshold | `HNSWIndex` (pure Rust, no external deps); `FlatIndex`; auto-switching logic based on data size |
 | **[sled](https://github.com/sled-db/sled)** (Rust) | Pure Rust embedded database concept, ACID transactions, prefix scanning | Added `StorageBackend` trait for swappable backends; added snapshot management; added archive compression | `SledStorage` wrapper; `SnapshotManager`; `ArchiveCatalog` with zstd compression |
 | **[petgraph](https://github.com/petgraph/petgraph)** (Rust) | Graph data structures for entity relationships | Added temporal validity windows; added fuzzy entity resolution; added relationship strength tracking | `GraphMemoryStore` with `ValidityWindow`; `EntityResolver` with Damerau-Levenshtein; `GraphRelationship` with evidence tracking |
+| **[opencode-session-recall](https://github.com/rmk40/opencode-session-recall)** (TypeScript) | Mining opencode SQLite for cross-session memory | Semantic embeddings instead of fuzzy search; structured memories instead of raw messages; checkpoint persistence for snapshots | `OpencodeIngestor` with `source_id` deduplication; message-to-memory transforms; engine save/load for session continuity |
 | **RISC.OSINT** (private) | Real-world requirements: unlimited events, semantic search at scale, entity graph tracking, pure Rust deployment, multi-provider LLM support | — | **Everything driven by RISC.OSINT needs**: Typed Intelligence Memories, Provider Registry, Horizontal Scaling, Prometheus Metrics, HTTP API, Entity Resolution |
 
 → See **[ORIGINS_AND_INSPIRATIONS.md](ORIGINS_AND_INSPIRATIONS.md)** for the complete architectural lineage with feature-to-source mapping.
@@ -53,7 +54,8 @@ RemeMnemosyne/
 │   ├── temporal      # Timeline events, time windows
 │   ├── cognitive     # Micro-embeddings, intent detection, SSC router (MC Phase 3), ContextPredictor
 │   ├── storage       # sled (default), RocksDB (optional), backup, read replicas, archive v2
-│   └── engine        # Unified API, context stack, providers, palace router, GRM (MC Phase 2)
+│   ├── engine        # Unified API, context stack, providers, palace router, GRM (MC Phase 2)
+│   └── ingest-opencode # Opencode session ingestion (from opencode-session-recall concept)
 ```
 
 ---
